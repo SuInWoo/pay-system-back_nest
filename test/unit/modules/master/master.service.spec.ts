@@ -1,37 +1,33 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { MasterService } from '../../../../src/modules/master/master.service';
-import { ClientCompany } from '../../../../src/modules/master/entities/client-company.entity';
-import { Product } from '../../../../src/modules/master/entities/product.entity';
+import { ClientCompanyRepository } from '../../../../src/modules/master/repositories/client-company.repository';
+import { ProductRepository } from '../../../../src/modules/master/repositories/product.repository';
 import { AppException } from '../../../../src/common/errors/app.exception';
-
-type ClientRepo = Repository<ClientCompany>;
-type ProductRepo = Repository<Product>;
 
 describe('MasterService (unit)', () => {
   let service: MasterService;
-  let clientRepo: jest.Mocked<ClientRepo>;
-  let productRepo: jest.Mocked<ProductRepo>;
+  let clientRepo: jest.Mocked<ClientCompanyRepository>;
+  let productRepo: jest.Mocked<ProductRepository>;
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MasterService,
         {
-          provide: getRepositoryToken(ClientCompany),
+          provide: ClientCompanyRepository,
           useValue: {
-            findOne: jest.fn(),
-            find: jest.fn(),
+            findByCodeOrName: jest.fn(),
+            findById: jest.fn(),
+            findAllOrderByCreatedDesc: jest.fn(),
             create: jest.fn(),
             save: jest.fn(),
           },
         },
         {
-          provide: getRepositoryToken(Product),
+          provide: ProductRepository,
           useValue: {
-            findOne: jest.fn(),
-            find: jest.fn(),
+            findBySku: jest.fn(),
+            findAll: jest.fn(),
             create: jest.fn(),
             save: jest.fn(),
           },
@@ -40,15 +36,15 @@ describe('MasterService (unit)', () => {
     }).compile();
 
     service = module.get(MasterService);
-    clientRepo = module.get(getRepositoryToken(ClientCompany));
-    productRepo = module.get(getRepositoryToken(Product));
+    clientRepo = module.get(ClientCompanyRepository);
+    productRepo = module.get(ProductRepository);
   });
 
   beforeEach(() => jest.clearAllMocks());
 
   describe('createClientCompany', () => {
     it('should throw MASTER_CLIENT_CONFLICT when code or name duplicated', async () => {
-      (clientRepo.findOne as jest.Mock).mockResolvedValue({ id: 'c1' } as ClientCompany);
+      (clientRepo.findByCodeOrName as jest.Mock).mockResolvedValue({ id: 'c1' });
 
       await expect(
         service.createClientCompany({ code: 'C1', name: '회사', is_active: true }),
@@ -58,7 +54,7 @@ describe('MasterService (unit)', () => {
 
   describe('createProduct', () => {
     it('should throw MASTER_CLIENT_NOT_FOUND when client does not exist', async () => {
-      (clientRepo.findOne as jest.Mock).mockResolvedValue(null);
+      (clientRepo.findById as jest.Mock).mockResolvedValue(null);
 
       await expect(
         service.createProduct({

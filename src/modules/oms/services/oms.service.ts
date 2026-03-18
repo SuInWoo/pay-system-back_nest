@@ -1,30 +1,25 @@
 import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { AppException } from '../../../common/errors/app.exception';
-import { Product } from '../../master/entities/product.entity';
+import { ProductRepository } from '../../master/repositories/product.repository';
 import { PaymentCreatedEvent } from '../../payment/events/payment-created.event';
+import { CreateOrderDetailDto } from '../dto/create-order-detail.dto';
 import { OrderDetail } from '../entities/order-detail.entity';
 import { DeliveryStatus, Order } from '../entities/order.entity';
-import { CreateOrderDetailDto } from '../dto/create-order-detail.dto';
+import { OrderDetailRepository } from '../repositories/order-detail.repository';
+import { OrderRepository } from '../repositories/order.repository';
 
 @Injectable()
 export class OmsService {
   constructor(
-    @InjectRepository(Order)
-    private readonly orderRepo: Repository<Order>,
-    @InjectRepository(OrderDetail)
-    private readonly orderDetailRepo: Repository<OrderDetail>,
-    @InjectRepository(Product)
-    private readonly productRepo: Repository<Product>,
+    private readonly orderRepo: OrderRepository,
+    private readonly orderDetailRepo: OrderDetailRepository,
+    private readonly productRepo: ProductRepository,
   ) {}
 
   @OnEvent('payment.created')
   async onPaymentCreated(event: PaymentCreatedEvent) {
-    const existing = await this.orderRepo.findOne({
-      where: { orderId: event.orderId },
-    });
+    const existing = await this.orderRepo.findByOrderId(event.orderId);
     if (existing) return existing;
 
     const order = this.orderRepo.create({
@@ -39,12 +34,9 @@ export class OmsService {
   }
 
   async getOrderWithDetails(orderId: string) {
-    const order = await this.orderRepo.findOne({ where: { orderId } });
+    const order = await this.orderRepo.findByOrderId(orderId);
     if (!order) throw new AppException('ORDER_NOT_FOUND');
-    const details = await this.orderDetailRepo.find({
-      where: { orderId },
-      order: { lineSeq: 'ASC' },
-    });
+    const details = await this.orderDetailRepo.findByOrderIdOrderByLineSeq(orderId);
     return {
       order_id: order.orderId,
       delivery_status: order.deliveryStatus,
@@ -68,21 +60,17 @@ export class OmsService {
   }
 
   async addOrderDetails(orderId: string, dto: CreateOrderDetailDto) {
-    const order = await this.orderRepo.findOne({ where: { orderId } });
+    const order = await this.orderRepo.findByOrderId(orderId);
     if (!order) throw new AppException('ORDER_NOT_FOUND');
 
-    const maxSeq = await this.orderDetailRepo
-      .createQueryBuilder('d')
-      .select('COALESCE(MAX(d.line_seq), 0)', 'max')
-      .where('d.order_id = :orderId', { orderId })
-      .getRawOne<{ max: string }>();
-    let nextSeq = parseInt(maxSeq?.max ?? '0', 10) + 1;
+    let nextSeq = (await this.orderDetailRepo.getMaxLineSeq(orderId)) + 1;
 
     const saved: OrderDetail[] = [];
     for (const item of dto.items) {
-      const product = await this.productRepo.findOne({
-        where: { clientCompanyId: item.client_company_id, sku: item.sku },
-      });
+      const product = await this.productRepo.findByClientCompanyIdAndSku(
+        item.client_company_id,
+        item.sku,
+      );
       if (!product) throw new AppException('PRODUCT_NOT_FOUND');
 
       const detail = this.orderDetailRepo.create({
@@ -97,19 +85,11 @@ export class OmsService {
       saved.push(await this.orderDetailRepo.save(detail));
     }
 
-    const agg = await this.orderDetailRepo
-      .createQueryBuilder('d')
-      .select('COALESCE(SUM(d.quantity), 0)', 'totalQuantity')
-      .addSelect('COALESCE(SUM(d.quantity * d.unit_price), 0)', 'totalAmount')
-      .where('d.order_id = :orderId', { orderId })
-      .getRawOne<{ totalQuantity: string; totalAmount: string }>();
-    await this.orderRepo.update(
-      { orderId },
-      {
-        totalQuantity: parseInt(agg?.totalQuantity ?? '0', 10),
-        totalAmount: parseInt(agg?.totalAmount ?? '0', 10),
-      },
-    );
+    const agg = await this.orderDetailRepo.getOrderTotals(orderId);
+    await this.orderRepo.update(orderId, {
+      totalQuantity: agg.totalQuantity,
+      totalAmount: agg.totalAmount,
+    });
 
     return saved.map((d) => ({
       order_id: d.orderId,

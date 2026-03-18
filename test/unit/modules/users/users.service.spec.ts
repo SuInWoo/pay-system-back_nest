@@ -1,25 +1,23 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../../../../src/modules/users/users.service';
 import { User, UserStatus } from '../../../../src/modules/users/entities/user.entity';
+import { UserRepository } from '../../../../src/modules/users/repositories/user.repository';
 import { AppException } from '../../../../src/common/errors/app.exception';
-
-type UserRepo = Repository<User>;
 
 describe('UsersService (unit)', () => {
   let service: UsersService;
-  let repo: jest.Mocked<UserRepo>;
+  let repo: jest.Mocked<UserRepository>;
 
   beforeAll(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         {
-          provide: getRepositoryToken(User),
+          provide: UserRepository,
           useValue: {
-            findOne: jest.fn(),
+            findByEmail: jest.fn(),
+            findById: jest.fn(),
             create: jest.fn(),
             save: jest.fn(),
             update: jest.fn(),
@@ -29,12 +27,12 @@ describe('UsersService (unit)', () => {
     }).compile();
 
     service = module.get(UsersService);
-    repo = module.get(getRepositoryToken(User));
+    repo = module.get(UserRepository);
   });
 
   describe('createUser', () => {
     it('should throw USER_EMAIL_CONFLICT when email already exists', async () => {
-      (repo.findOne as jest.Mock).mockResolvedValue({ id: 'u1' } as User);
+      (repo.findByEmail as jest.Mock).mockResolvedValue({ id: 'u1' } as User);
 
       await expect(
         service.createUser({ email: 'dup@example.com', password: '12345678' }),
@@ -42,7 +40,7 @@ describe('UsersService (unit)', () => {
     });
 
     it('should hash password and save new user', async () => {
-      (repo.findOne as jest.Mock).mockResolvedValue(null);
+      (repo.findByEmail as jest.Mock).mockResolvedValue(null);
       (repo.create as jest.Mock).mockImplementation((data) => data);
       (repo.save as jest.Mock).mockImplementation(async (u) => ({
         ...u,

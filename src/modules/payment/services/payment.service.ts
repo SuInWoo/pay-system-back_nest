@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource, Repository } from 'typeorm';
-import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { Payment, PaymentStatus } from '../entities/payment.entity';
 import { PaymentCreatedEvent } from '../events/payment-created.event';
+import { PaymentRepository } from '../repositories/payment.repository';
 import { PaymentResult } from './payment.types';
 
 @Injectable()
@@ -11,8 +11,7 @@ export class PaymentService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
-    @InjectRepository(Payment)
-    private readonly paymentRepo: Repository<Payment>,
+    private readonly paymentRepo: PaymentRepository,
   ) {}
 
   async createPayment(params: {
@@ -25,9 +24,11 @@ export class PaymentService {
     await queryRunner.startTransaction();
 
     try {
-      const existingSucceeded = await queryRunner.manager.findOne(Payment, {
-        where: { idempotencyKey: params.idempotencyKey, status: PaymentStatus.SUCCEEDED },
-      });
+      const existingSucceeded = await this.paymentRepo.findByIdempotencyKeyAndStatus(
+        params.idempotencyKey,
+        PaymentStatus.SUCCEEDED,
+        queryRunner.manager,
+      );
       if (existingSucceeded) {
         await queryRunner.commitTransaction();
         return this.toResult(existingSucceeded);
@@ -60,9 +61,7 @@ export class PaymentService {
 
       // Postgres unique_violation
       if (e?.code === '23505') {
-        const existing = await this.paymentRepo.findOne({
-          where: { idempotencyKey: params.idempotencyKey },
-        });
+        const existing = await this.paymentRepo.findByIdempotencyKey(params.idempotencyKey);
         if (existing) return this.toResult(existing);
       }
 

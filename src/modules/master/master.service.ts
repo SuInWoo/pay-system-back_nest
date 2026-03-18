@@ -1,26 +1,22 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { AppException } from '../../common/errors/app.exception';
 import { CreateClientCompanyDto } from './dto/create-client-company.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ClientCompany } from './entities/client-company.entity';
 import { Product } from './entities/product.entity';
+import { ClientCompanyRepository } from './repositories/client-company.repository';
+import { ProductRepository } from './repositories/product.repository';
 
 @Injectable()
 export class MasterService {
   constructor(
-    @InjectRepository(ClientCompany)
-    private readonly clientRepo: Repository<ClientCompany>,
-    @InjectRepository(Product)
-    private readonly productRepo: Repository<Product>,
+    private readonly clientRepo: ClientCompanyRepository,
+    private readonly productRepo: ProductRepository,
   ) {}
 
   async createClientCompany(dto: CreateClientCompanyDto) {
     // code/name은 마스터 식별자 성격이라 중복을 명확히 차단합니다(계약 안정성).
-    const existing = await this.clientRepo.findOne({
-      where: [{ code: dto.code }, { name: dto.name }],
-    });
+    const existing = await this.clientRepo.findByCodeOrName(dto.code, dto.name);
     if (existing) throw new AppException('MASTER_CLIENT_CONFLICT');
 
     const entity = this.clientRepo.create({
@@ -33,17 +29,17 @@ export class MasterService {
   }
 
   async listClientCompanies() {
-    const rows = await this.clientRepo.find({ order: { createdAt: 'DESC' } });
+    const rows = await this.clientRepo.findAllOrderByCreatedDesc();
     return rows.map((r) => this.toClient(r));
   }
 
   async createProduct(dto: CreateProductDto) {
     // FK를 DB에서 강제하지 않는 대신, 서비스에서 선검증해서 404 계약을 지킵니다.
-    const client = await this.clientRepo.findOne({ where: { id: dto.client_company_id } });
+    const client = await this.clientRepo.findById(dto.client_company_id);
     if (!client) throw new AppException('MASTER_CLIENT_NOT_FOUND');
 
     // sku는 외부 연동/정산 등에서 키로 쓰이기 쉬워 전역 유니크로 운영합니다.
-    const existingSku = await this.productRepo.findOne({ where: { sku: dto.sku } });
+    const existingSku = await this.productRepo.findBySku(dto.sku);
     if (existingSku) throw new AppException('MASTER_PRODUCT_SKU_CONFLICT');
 
     const entity = this.productRepo.create({
@@ -58,12 +54,8 @@ export class MasterService {
   }
 
   async listProducts(params?: { client_company_id?: string }) {
-    const where = params?.client_company_id
-      ? { clientCompanyId: params.client_company_id }
-      : {};
-    const rows = await this.productRepo.find({
-      where,
-      order: { createdAt: 'DESC' },
+    const rows = await this.productRepo.findAll({
+      clientCompanyId: params?.client_company_id,
     });
     return rows.map((r) => this.toProduct(r));
   }

@@ -1,20 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
-import { Repository } from 'typeorm';
 import { AppException } from '../../common/errors/app.exception';
 import { CreateUserDto } from './dto/create-user.dto';
 import { User, UserStatus } from './entities/user.entity';
+import { UserRepository } from './repositories/user.repository';
 
 @Injectable()
 export class UsersService {
-  constructor(
-    @InjectRepository(User)
-    private readonly userRepo: Repository<User>,
-  ) {}
+  constructor(private readonly userRepo: UserRepository) {}
 
   async createUser(dto: CreateUserDto): Promise<User> {
-    const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+    const existing = await this.userRepo.findByEmail(dto.email);
     if (existing) throw new AppException('USER_EMAIL_CONFLICT');
 
     // 비밀번호/토큰은 평문 저장 금지: DB 유출 시 2차 피해를 줄이기 위해 bcrypt 해시만 저장합니다.
@@ -30,11 +26,11 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.userRepo.findOne({ where: { email } });
+    return this.userRepo.findByEmail(email);
   }
 
   async findById(id: string): Promise<User | null> {
-    return this.userRepo.findOne({ where: { id } });
+    return this.userRepo.findById(id);
   }
 
   async validatePassword(user: User, password: string): Promise<void> {
