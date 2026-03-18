@@ -3,16 +3,22 @@ import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagg
 import { Request } from 'express';
 import { CreateUserDto } from '../users/dto/create-user.dto';
 import { AuthService } from './auth.service';
+import { MenusService } from '../menus/menus.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './jwt/jwt-auth.guard';
 
-type AuthedRequest = Request & { user?: { userId: string; email: string } };
+type AuthedRequest = Request & {
+  user?: { userId: string; email: string; name: string; role: string; roleName: string };
+};
 
 @ApiTags('인증 (Auth)')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly menusService: MenusService,
+  ) {}
 
   @Post('register')
   @ApiOperation({ summary: '회원가입' })
@@ -31,6 +37,15 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('roles')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: '역할 목록 조회' })
+  @ApiResponse({ status: 200, description: 'Role[] (id, code, name, sortOrder)' })
+  listRoles() {
+    return this.authService.listRoles();
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('logout')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: '로그아웃' })
@@ -44,10 +59,11 @@ export class AuthController {
   @Get('me')
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: '내 정보 조회' })
-  @ApiResponse({ status: 200, description: 'user (userId, email)' })
+  @ApiResponse({ status: 200, description: 'user (userId, email, name, role, roleName, menus)' })
   @ApiResponse({ status: 401, description: '미인증' })
-  me(@Req() req: AuthedRequest) {
-    return { user: req.user };
+  async me(@Req() req: AuthedRequest) {
+    const menus = await this.menusService.getMenusForRole(req.user!.role);
+    return { user: { ...req.user, menus } };
   }
 
   @UseGuards(JwtAuthGuard)

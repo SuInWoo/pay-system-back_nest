@@ -1,4 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
+import { piiTransformer } from '../../../common/crypto/pii-encryption';
 import { User } from '../../users/entities/user.entity';
 
 export enum DeliveryStatus {
@@ -18,7 +19,7 @@ export class Order {
   @Column({ type: 'varchar', length: 32, name: 'delivery_status' })
   deliveryStatus!: DeliveryStatus;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'text', transformer: piiTransformer })
   address!: string;
 
   @Column({ type: 'int', name: 'total_quantity', default: 0 })
@@ -30,13 +31,13 @@ export class Order {
   @Column({ type: 'uuid', name: 'orderer_user_id', nullable: true })
   ordererUserId!: string | null;
 
-  @Column({ type: 'varchar', length: 120, name: 'orderer_name', nullable: true })
+  @Column({ type: 'text', name: 'orderer_name', nullable: true, transformer: piiTransformer })
   ordererName!: string | null;
 
-  @Column({ type: 'varchar', length: 32, name: 'orderer_phone', nullable: true })
+  @Column({ type: 'text', name: 'orderer_phone', nullable: true, transformer: piiTransformer })
   ordererPhone!: string | null;
 
-  @Column({ type: 'varchar', length: 320, name: 'orderer_email', nullable: true })
+  @Column({ type: 'text', name: 'orderer_email', nullable: true, transformer: piiTransformer })
   ordererEmail!: string | null;
 
   @ManyToOne(() => User, { onDelete: 'SET NULL' })

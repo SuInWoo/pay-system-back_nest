@@ -10,6 +10,10 @@ export class ProductRepository {
     private readonly repo: Repository<Product>,
   ) {}
 
+  findById(id: string): Promise<Product | null> {
+    return this.repo.findOne({ where: { id } });
+  }
+
   findBySku(sku: string): Promise<Product | null> {
     return this.repo.findOne({ where: { sku } });
   }

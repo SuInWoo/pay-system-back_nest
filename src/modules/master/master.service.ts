@@ -53,6 +53,12 @@ export class MasterService {
     return this.toProduct(saved);
   }
 
+  async getProduct(id: string) {
+    const product = await this.productRepo.findById(id);
+    if (!product) throw new AppException('PRODUCT_NOT_FOUND');
+    return this.toProduct(product);
+  }
+
   async listProducts(params?: { client_company_id?: string }) {
     const rows = await this.productRepo.findAll({
       clientCompanyId: params?.client_company_id,

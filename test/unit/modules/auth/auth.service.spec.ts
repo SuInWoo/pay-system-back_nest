@@ -56,7 +56,11 @@ describe('AuthService (unit)', () => {
     });
 
     it('should call validatePassword and issue tokens on success', async () => {
-      usersService.findByEmail.mockResolvedValue({ id: 'u1', email: 'u@example.com' });
+      usersService.findByEmail.mockResolvedValue({
+        id: 'u1',
+        email: 'u@example.com',
+        name: 'Test User',
+      });
       usersService.validatePassword.mockResolvedValue(undefined);
       (jwtService.signAsync as jest.Mock)
         .mockResolvedValueOnce('access-token')

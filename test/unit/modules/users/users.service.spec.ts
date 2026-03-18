@@ -3,7 +3,10 @@ import * as bcrypt from 'bcrypt';
 import { UsersService } from '../../../../src/modules/users/users.service';
 import { User, UserStatus } from '../../../../src/modules/users/entities/user.entity';
 import { UserRepository } from '../../../../src/modules/users/repositories/user.repository';
+import { RoleRepository } from '../../../../src/modules/users/repositories/role.repository';
 import { AppException } from '../../../../src/common/errors/app.exception';
+
+const mockRole = { id: 'role-1', code: 'CUSTOMER', name: '고객' };
 
 describe('UsersService (unit)', () => {
   let service: UsersService;
@@ -23,6 +26,13 @@ describe('UsersService (unit)', () => {
             update: jest.fn(),
           },
         },
+        {
+          provide: RoleRepository,
+          useValue: {
+            findByCode: jest.fn().mockResolvedValue(mockRole),
+            findAll: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -35,7 +45,7 @@ describe('UsersService (unit)', () => {
       (repo.findByEmail as jest.Mock).mockResolvedValue({ id: 'u1' } as User);
 
       await expect(
-        service.createUser({ email: 'dup@example.com', password: '12345678' }),
+        service.createUser({ name: '홍길동', email: 'dup@example.com', password: '12345678' }),
       ).rejects.toEqual(new AppException('USER_EMAIL_CONFLICT'));
     });
 
@@ -47,11 +57,17 @@ describe('UsersService (unit)', () => {
         id: 'new-id',
       }));
 
-      const user = await service.createUser({ email: 'new@example.com', password: '12345678' });
+      const user = await service.createUser({
+        name: '홍길동',
+        email: 'new@example.com',
+        password: '12345678',
+      });
 
       expect(user.id).toBe('new-id');
       expect(user.email).toBe('new@example.com');
+      expect(user.name).toBe('홍길동');
       expect(user.status).toBe(UserStatus.ACTIVE);
+      expect(user.roleId).toBe('role-1');
       expect(user.passwordHash).toBeDefined();
     });
   });

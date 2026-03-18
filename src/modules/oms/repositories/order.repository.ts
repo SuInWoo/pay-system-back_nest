@@ -14,6 +14,17 @@ export class OrderRepository {
     return this.repo.findOne({ where: { orderId } });
   }
 
+  findByOrdererUserId(ordererUserId: string): Promise<Order[]> {
+    return this.repo.find({
+      where: { ordererUserId },
+      order: { orderId: 'DESC' },
+    });
+  }
+
+  findAll(): Promise<Order[]> {
+    return this.repo.find({ order: { orderId: 'DESC' } });
+  }
+
   create(data: Partial<Order>): Order {
     return this.repo.create(data);
   }

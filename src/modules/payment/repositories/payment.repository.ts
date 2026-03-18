@@ -22,4 +22,9 @@ export class PaymentRepository {
     const target = manager ? manager.getRepository(Payment) : this.repo;
     return target.findOne({ where: { idempotencyKey: key, status } });
   }
+
+  findAll(params?: { orderId?: string }): Promise<Payment[]> {
+    const where = params?.orderId ? { orderId: params.orderId } : {};
+    return this.repo.find({ where, order: { id: 'DESC' } });
+  }
 }

@@ -28,7 +28,13 @@ export class AuthService {
     await this.usersService.setRefreshTokenHash(user.id, tokens.refresh_token);
 
     return {
-      user: { id: user.id, email: user.email },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role?.code ?? 'CUSTOMER',
+        roleName: user.role?.name ?? '고객',
+      },
       ...tokens,
     };
   }
@@ -44,7 +50,13 @@ export class AuthService {
     await this.usersService.setRefreshTokenHash(user.id, tokens.refresh_token);
 
     return {
-      user: { id: user.id, email: user.email },
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role?.code ?? 'CUSTOMER',
+        roleName: user.role?.name ?? '고객',
+      },
       ...tokens,
     };
   }
@@ -52,6 +64,10 @@ export class AuthService {
   async logout(userId: string) {
     await this.usersService.clearRefreshToken(userId);
     return { ok: true };
+  }
+
+  async listRoles() {
+    return this.usersService.listRoles();
   }
 
   async refresh(userId: string, refreshToken: string) {

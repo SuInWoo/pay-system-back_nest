@@ -71,6 +71,13 @@ export class PaymentService {
     }
   }
 
+  async listPayments(params?: { order_id?: string }): Promise<PaymentResult[]> {
+    const rows = await this.paymentRepo.findAll({
+      orderId: params?.order_id,
+    });
+    return rows.map((p) => this.toResult(p));
+  }
+
   private toResult(p: Payment): PaymentResult {
     return {
       id: p.id,

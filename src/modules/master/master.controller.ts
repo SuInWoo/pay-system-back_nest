@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CreateClientCompanyDto } from './dto/create-client-company.dto';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -38,6 +38,14 @@ export class MasterController {
   @ApiResponse({ status: 200, description: '상품 목록' })
   listProducts(@Query('client_company_id') clientCompanyId?: string) {
     return this.masterService.listProducts({ client_company_id: clientCompanyId });
+  }
+
+  @Get('products/:id')
+  @ApiOperation({ summary: '상품 단건 조회' })
+  @ApiResponse({ status: 200, description: '상품 상세' })
+  @ApiResponse({ status: 404, description: 'PRODUCT_NOT_FOUND' })
+  getProduct(@Param('id') id: string) {
+    return this.masterService.getProduct(id);
   }
 }
 

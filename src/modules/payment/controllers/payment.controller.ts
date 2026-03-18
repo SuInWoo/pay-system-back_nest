@@ -1,5 +1,5 @@
-import { Body, Controller, Post } from '@nestjs/common';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { PaymentService } from '../services/payment.service';
 
@@ -7,6 +7,14 @@ import { PaymentService } from '../services/payment.service';
 @Controller('payments')
 export class PaymentController {
   constructor(private readonly paymentService: PaymentService) {}
+
+  @Get()
+  @ApiOperation({ summary: '결제 목록 조회 (관리자)' })
+  @ApiQuery({ name: 'order_id', required: false, description: '주문 ID로 필터' })
+  @ApiResponse({ status: 200, description: '결제 목록' })
+  listPayments(@Query('order_id') orderId?: string) {
+    return this.paymentService.listPayments({ order_id: orderId });
+  }
 
   @Post()
   @ApiOperation({ summary: '결제 생성 (멱등 키 필수)' })

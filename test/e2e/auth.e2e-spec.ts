@@ -29,7 +29,7 @@ describeIfDb('Auth API (e2e)', () => {
     // register
     await request(app.getHttpServer())
       .post('/auth/register')
-      .send({ email, password })
+      .send({ name: 'E2E User', email, password })
       .expect(201);
 
     // login
