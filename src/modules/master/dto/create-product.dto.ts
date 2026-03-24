@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { ProductCategory } from '../entities/product.entity';
 
 export class CreateProductDto {
   @ApiProperty({ description: '고객사 UUID', example: '550e8400-e29b-41d4-a716-446655440000' })
@@ -15,6 +16,14 @@ export class CreateProductDto {
   @IsString()
   @MaxLength(200)
   name!: string;
+
+  @ApiProperty({
+    description: '상품 카테고리',
+    enum: ProductCategory,
+    example: ProductCategory.APPAREL,
+  })
+  @IsEnum(ProductCategory)
+  category!: ProductCategory;
 
   @ApiProperty({ description: '가격 (원)', minimum: 0, example: 10000 })
   @IsInt()

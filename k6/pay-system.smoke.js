@@ -77,6 +77,7 @@ function ensureMasterData(token) {
       client_company_id: client.id,
       sku,
       name: `상품_${sku}`,
+      category: randomItem(['APPAREL', 'ELECTRONICS', 'FOOD']),
       price: randomIntBetween(1000, 20000),
       is_active: true,
     }),

@@ -129,6 +129,7 @@ CREATE TABLE products (
   client_company_id UUID NOT NULL REFERENCES client_companies (id),
   sku VARCHAR(64) NOT NULL,
   name VARCHAR(200) NOT NULL,
+  category VARCHAR(32) NOT NULL,
   price INT NOT NULL,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -136,6 +137,34 @@ CREATE TABLE products (
   PRIMARY KEY (client_company_id, sku)
 );
 CREATE INDEX ix_products_client_company_id ON products (client_company_id);
+CREATE INDEX ix_products_client_company_id_created_at ON products (client_company_id, created_at DESC);
+
+-- 5-1) 사용자 개인정보 프로필 (PII 암호화 저장 대상)
+CREATE TABLE user_profiles (
+  user_id UUID PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
+  phone TEXT,
+  email TEXT,
+  name TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 5-2) 사용자 배송지 (PII 암호화 저장 대상)
+CREATE TABLE user_addresses (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  receiver_name TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  zip_code TEXT,
+  address1 TEXT NOT NULL,
+  address2 TEXT,
+  label VARCHAR(120) NOT NULL DEFAULT '기본 배송지',
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_user_addresses_user_id ON user_addresses (user_id);
+CREATE INDEX ix_user_addresses_user_id_default ON user_addresses (user_id, is_default);
 
 -- 6) 주문번호 채번용 시퀀스
 CREATE SEQUENCE order_seq;

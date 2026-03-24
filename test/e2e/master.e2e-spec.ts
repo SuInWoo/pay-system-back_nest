@@ -42,15 +42,28 @@ describeIfDb('Master API (e2e)', () => {
         client_company_id: clientId,
         sku,
         name: `상품_${sku}`,
+        category: 'APPAREL',
         price: 1000,
         is_active: true,
       })
       .expect(201);
 
     // list products
-    await request(app.getHttpServer())
-      .get(`/master/products?client_company_id=${clientId}`)
+    const listRes = await request(app.getHttpServer())
+      .get(`/master/products?client_company_id=${clientId}&page=1&limit=10`)
       .expect(200);
+
+    expect(Array.isArray(listRes.body.items)).toBe(true);
+    expect(listRes.body.meta).toEqual(
+      expect.objectContaining({
+        total: expect.any(Number),
+        page: 1,
+        limit: 10,
+        totalPages: expect.any(Number),
+        hasPrev: expect.any(Boolean),
+        hasNext: expect.any(Boolean),
+      }),
+    );
   });
 });
 

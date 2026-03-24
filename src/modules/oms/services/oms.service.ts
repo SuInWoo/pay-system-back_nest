@@ -97,6 +97,10 @@ export class OmsService {
       address: '',
       totalQuantity: 0,
       totalAmount: 0,
+      ordererUserId: null,
+      ordererName: null,
+      ordererPhone: null,
+      ordererEmail: null,
     });
     return this.orderRepo.save(order);
   }
@@ -145,6 +149,10 @@ export class OmsService {
         address: '',
         totalQuantity: 0,
         totalAmount: 0,
+        ordererUserId: null,
+        ordererName: null,
+        ordererPhone: null,
+        ordererEmail: null,
       });
       order = await this.orderRepo.save(newOrder);
     }

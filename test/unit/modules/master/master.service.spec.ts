@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { MasterService } from '../../../../src/modules/master/master.service';
+import { ProductCategory } from '../../../../src/modules/master/entities/product.entity';
 import { ClientCompanyRepository } from '../../../../src/modules/master/repositories/client-company.repository';
 import { ProductRepository } from '../../../../src/modules/master/repositories/product.repository';
 import { AppException } from '../../../../src/common/errors/app.exception';
@@ -28,6 +29,7 @@ describe('MasterService (unit)', () => {
           useValue: {
             findBySku: jest.fn(),
             findAll: jest.fn(),
+            findPage: jest.fn(),
             create: jest.fn(),
             save: jest.fn(),
           },
@@ -61,9 +63,49 @@ describe('MasterService (unit)', () => {
           client_company_id: 'missing',
           sku: 'SKU1',
           name: '상품',
+          category: ProductCategory.APPAREL,
           price: 1000,
         }),
       ).rejects.toEqual(new AppException('MASTER_CLIENT_NOT_FOUND'));
+    });
+  });
+
+  describe('listProducts', () => {
+    it('should return items + pagination meta', async () => {
+      (productRepo.findPage as jest.Mock).mockResolvedValue([
+        [
+          {
+            id: 'p1',
+            clientCompanyId: 'c1',
+            sku: 'SKU1',
+            name: '상품1',
+            category: ProductCategory.APPAREL,
+            price: 1000,
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ],
+        21,
+      ]);
+
+      const result = await service.listProducts({ page: 2, limit: 10 });
+
+      expect(productRepo.findPage).toHaveBeenCalledWith({
+        clientCompanyId: undefined,
+        category: undefined,
+        skip: 10,
+        take: 10,
+      });
+      expect(result.items).toHaveLength(1);
+      expect(result.meta).toEqual({
+        total: 21,
+        page: 2,
+        limit: 10,
+        totalPages: 3,
+        hasPrev: true,
+        hasNext: true,
+      });
     });
   });
 });

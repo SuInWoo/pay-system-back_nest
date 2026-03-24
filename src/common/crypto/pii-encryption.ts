@@ -23,8 +23,9 @@ function getKey(): Buffer {
  * 주문자명, 주소, 연락처, 이메일 등 개인정보를 AES-256-GCM으로 암호화합니다.
  * null/빈 문자열은 그대로 반환합니다.
  */
-export function encryptPii(plain: string | null): string | null {
-  if (plain === null || plain === '') return plain;
+export function encryptPii(plain: string | null | undefined): string | null {
+  // ORM에서 nullable 컬럼을 undefined로 전달하는 경우가 있어, null로 정규화해 암호화 예외를 방지합니다.
+  if (plain === undefined || plain === null || plain === '') return plain ?? null;
   const key = getKey();
   const iv = randomBytes(IV_LEN);
   const cipher = createCipheriv(ALGO, key, iv);
@@ -41,8 +42,8 @@ export function encryptPii(plain: string | null): string | null {
  * 암호화된 개인정보를 복호화합니다.
  * PIIv1: 접두사가 없으면 기존 평문 데이터로 간주하여 그대로 반환합니다.
  */
-export function decryptPii(cipher: string | null): string | null {
-  if (cipher === null || cipher === '') return cipher;
+export function decryptPii(cipher: string | null | undefined): string | null {
+  if (cipher === undefined || cipher === null || cipher === '') return cipher ?? null;
   if (!cipher.startsWith(PREFIX)) return cipher; // 기존 평문 데이터 호환
   const key = getKey();
   const combined = Buffer.from(cipher.slice(PREFIX.length), 'base64');
@@ -55,6 +56,6 @@ export function decryptPii(cipher: string | null): string | null {
 }
 
 export const piiTransformer = {
-  to: (value: string | null) => encryptPii(value),
-  from: (value: string | null) => decryptPii(value),
+  to: (value: string | null | undefined) => encryptPii(value),
+  from: (value: string | null | undefined) => decryptPii(value),
 };

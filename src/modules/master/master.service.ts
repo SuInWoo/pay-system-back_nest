@@ -3,7 +3,7 @@ import { AppException } from '../../common/errors/app.exception';
 import { CreateClientCompanyDto } from './dto/create-client-company.dto';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ClientCompany } from './entities/client-company.entity';
-import { Product } from './entities/product.entity';
+import { Product, ProductCategory } from './entities/product.entity';
 import { ClientCompanyRepository } from './repositories/client-company.repository';
 import { ProductRepository } from './repositories/product.repository';
 
@@ -46,6 +46,7 @@ export class MasterService {
       clientCompanyId: dto.client_company_id,
       sku: dto.sku,
       name: dto.name,
+      category: dto.category,
       price: dto.price,
       isActive: dto.is_active ?? true,
     });
@@ -59,11 +60,35 @@ export class MasterService {
     return this.toProduct(product);
   }
 
-  async listProducts(params?: { client_company_id?: string }) {
-    const rows = await this.productRepo.findAll({
+  async listProducts(params?: {
+    client_company_id?: string;
+    category?: ProductCategory;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Math.max(1, params?.page ?? 1);
+    const limit = Math.min(100, Math.max(1, params?.limit ?? 20));
+    const skip = (page - 1) * limit;
+
+    const [rows, total] = await this.productRepo.findPage({
       clientCompanyId: params?.client_company_id,
+      category: params?.category,
+      skip,
+      take: limit,
     });
-    return rows.map((r) => this.toProduct(r));
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
+    return {
+      items: rows.map((r) => this.toProduct(r)),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasPrev: page > 1 && totalPages > 0,
+        hasNext: totalPages > 0 && page < totalPages,
+      },
+    };
   }
 
   private toClient(c: ClientCompany) {
@@ -83,6 +108,7 @@ export class MasterService {
       client_company_id: p.clientCompanyId,
       sku: p.sku,
       name: p.name,
+      category: p.category,
       price: p.price,
       is_active: p.isActive,
       created_at: p.createdAt,

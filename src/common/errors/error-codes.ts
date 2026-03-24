@@ -38,6 +38,11 @@ export const ERROR_CODES = {
     message: '이미 사용 중인 이메일입니다.',
     statusCode: HttpStatus.CONFLICT,
   },
+  /** 사용자 배송지 미존재 */
+  USER_ADDRESS_NOT_FOUND: {
+    message: '배송지를 찾을 수 없습니다.',
+    statusCode: HttpStatus.NOT_FOUND,
+  },
 
   // --- 마스터: 고객사/상품 (4xx) ---
   /** 고객사 code/name 중복 */

@@ -2,6 +2,8 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { CreateClientCompanyDto } from './dto/create-client-company.dto';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ListProductsQueryDto } from './dto/list-products-query.dto';
+import { ProductCategory } from './entities/product.entity';
 import { MasterService } from './master.service';
 
 @ApiTags('마스터 (고객사·상품)')
@@ -35,9 +37,12 @@ export class MasterController {
   @Get('products')
   @ApiOperation({ summary: '상품 목록 조회' })
   @ApiQuery({ name: 'client_company_id', required: false, description: '고객사 UUID로 필터' })
-  @ApiResponse({ status: 200, description: '상품 목록' })
-  listProducts(@Query('client_company_id') clientCompanyId?: string) {
-    return this.masterService.listProducts({ client_company_id: clientCompanyId });
+  @ApiQuery({ name: 'category', required: false, enum: ProductCategory, description: '카테고리 필터' })
+  @ApiQuery({ name: 'page', required: false, description: '페이지 번호(1부터)', example: 1 })
+  @ApiQuery({ name: 'limit', required: false, description: '페이지 크기(기본 20, 최대 100)', example: 20 })
+  @ApiResponse({ status: 200, description: '상품 목록 페이지네이션 결과(items + meta)' })
+  listProducts(@Query() query: ListProductsQueryDto) {
+    return this.masterService.listProducts(query);
   }
 
   @Get('products/:id')
