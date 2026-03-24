@@ -39,6 +39,7 @@ export class UsersService {
       roleId: role.id,
       status: UserStatus.ACTIVE,
       refreshTokenHash: null,
+      clientCompanyId: null,
     });
 
     return this.userRepo.save(user);

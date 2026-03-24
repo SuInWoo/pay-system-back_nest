@@ -1,6 +1,8 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ConfirmPaymentDto } from '../dto/confirm-payment.dto';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
+import { PreparePaymentDto } from '../dto/prepare-payment.dto';
 import { PaymentService } from '../services/payment.service';
 
 @ApiTags('결제 (Payment)')
@@ -27,6 +29,42 @@ export class PaymentController {
       amount: dto.amount,
       idempotencyKey: dto.idempotency_key,
     });
+  }
+
+  @Post('prepare')
+  @ApiOperation({ summary: '토스 결제 준비' })
+  @ApiResponse({ status: 201, description: '결제 준비 정보' })
+  @ApiResponse({ status: 404, description: 'ORDER_NOT_FOUND' })
+  @ApiResponse({ status: 409, description: 'PAYMENT_IDEMPOTENCY_CONFLICT' })
+  @ApiResponse({ status: 422, description: 'PAYMENT_AMOUNT_MISMATCH' })
+  prepare(@Body() dto: PreparePaymentDto) {
+    return this.paymentService.preparePayment(dto);
+  }
+
+  @Post('confirm')
+  @ApiOperation({ summary: '토스 결제 승인(confirm)' })
+  @ApiResponse({ status: 201, description: '승인된 결제 정보' })
+  @ApiResponse({ status: 404, description: 'ORDER_NOT_FOUND' })
+  @ApiResponse({ status: 409, description: 'PAYMENT_ALREADY_CONFIRMED' })
+  @ApiResponse({ status: 422, description: 'PAYMENT_AMOUNT_MISMATCH' })
+  @ApiResponse({ status: 502, description: 'PAYMENT_PROVIDER_FAILED' })
+  confirm(@Body() dto: ConfirmPaymentDto) {
+    return this.paymentService.confirmPayment(dto);
+  }
+
+  @Get(':orderId')
+  @ApiOperation({ summary: '주문별 결제 상태 조회' })
+  @ApiResponse({ status: 200, description: '결제 상태' })
+  @ApiResponse({ status: 404, description: 'ORDER_NOT_FOUND' })
+  getByOrderId(@Param('orderId') orderId: string) {
+    return this.paymentService.getPaymentByOrderId(orderId);
+  }
+
+  @Post('webhook/toss')
+  @ApiOperation({ summary: '토스 웹훅 수신(초안)' })
+  @ApiResponse({ status: 201, description: '수신 성공' })
+  webhook(@Body() payload: Record<string, unknown>) {
+    return this.paymentService.handleTossWebhook(payload);
   }
 }
 

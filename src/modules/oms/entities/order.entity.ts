@@ -1,4 +1,5 @@
 import { Column, Entity, JoinColumn, ManyToOne, PrimaryColumn } from 'typeorm';
+import { CreateDateColumn } from 'typeorm';
 import { piiTransformer } from '../../../common/crypto/pii-encryption';
 import { User } from '../../users/entities/user.entity';
 
@@ -43,5 +44,8 @@ export class Order {
   @ManyToOne(() => User, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'orderer_user_id' })
   ordererUser?: User | null;
+
+  @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
+  createdAt!: Date;
 }
 

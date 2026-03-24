@@ -43,6 +43,9 @@ export class User {
   @Column({ type: 'varchar', length: 255, name: 'refresh_token_hash', nullable: true })
   refreshTokenHash!: string | null;
 
+  @Column({ type: 'uuid', name: 'client_company_id', nullable: true })
+  clientCompanyId!: string | null;
+
   @CreateDateColumn({ type: 'timestamptz', name: 'created_at' })
   createdAt!: Date;
 

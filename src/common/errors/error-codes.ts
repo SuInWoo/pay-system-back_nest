@@ -21,6 +21,11 @@ export const ERROR_CODES = {
     message: '세션이 만료되었습니다.',
     statusCode: HttpStatus.UNAUTHORIZED,
   },
+  /** 권한 부족 */
+  AUTH_FORBIDDEN: {
+    message: '접근 권한이 없습니다.',
+    statusCode: HttpStatus.FORBIDDEN,
+  },
 
   // --- 회원 (4xx) ---
   /** 역할 미존재 */
@@ -86,6 +91,28 @@ export const ERROR_CODES = {
   ORDER_ALREADY_EXISTS: {
     message: '이미 존재하는 주문 ID입니다.',
     statusCode: HttpStatus.CONFLICT,
+  },
+
+  // --- 결제/PG 연동 (4xx, 5xx) ---
+  /** 결제 금액 불일치 */
+  PAYMENT_AMOUNT_MISMATCH: {
+    message: '주문 금액과 결제 요청 금액이 일치하지 않습니다.',
+    statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+  },
+  /** 멱등 키 충돌(다른 주문/금액으로 재사용) */
+  PAYMENT_IDEMPOTENCY_CONFLICT: {
+    message: '이미 사용된 멱등 키입니다.',
+    statusCode: HttpStatus.CONFLICT,
+  },
+  /** 이미 승인된 주문 결제 */
+  PAYMENT_ALREADY_CONFIRMED: {
+    message: '이미 승인된 결제입니다.',
+    statusCode: HttpStatus.CONFLICT,
+  },
+  /** 외부 PG 연동 실패 */
+  PAYMENT_PROVIDER_FAILED: {
+    message: '결제사 연동에 실패했습니다.',
+    statusCode: HttpStatus.BAD_GATEWAY,
   },
 
   // --- 검증 (4xx) ---

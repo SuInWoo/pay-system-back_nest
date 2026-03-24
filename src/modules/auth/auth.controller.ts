@@ -13,7 +13,14 @@ import { RefreshDto } from './dto/refresh.dto';
 import { JwtAuthGuard } from './jwt/jwt-auth.guard';
 
 type AuthedRequest = Request & {
-  user?: { userId: string; email: string; name: string; role: string; roleName: string };
+  user?: {
+    userId: string;
+    email: string;
+    name: string;
+    role: string;
+    roleName: string;
+    clientCompanyId?: string;
+  };
 };
 
 @ApiTags('인증 (Auth)')

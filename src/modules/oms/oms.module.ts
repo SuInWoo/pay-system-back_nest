@@ -12,7 +12,7 @@ import { OrderRepository } from './repositories/order.repository';
   imports: [TypeOrmModule.forFeature([Order, OrderDetail]), MasterModule],
   controllers: [OmsController],
   providers: [OmsService, OrderRepository, OrderDetailRepository],
-  exports: [OmsService],
+  exports: [OmsService, OrderRepository],
 })
 export class OmsModule {}
 

@@ -1,21 +1,60 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
-import { ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Request } from 'express';
+import { JwtAuthGuard } from '../../auth/jwt/jwt-auth.guard';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { CreateOrderDetailDto } from '../dto/create-order-detail.dto';
+import { ListOrdersQueryDto } from '../dto/list-orders-query.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
 import { OmsService } from '../services/oms.service';
+
+type AuthedRequest = Request & {
+  user?: {
+    userId: string;
+    role: string;
+    clientCompanyId?: string;
+  };
+};
 
 @ApiTags('주문 (OMS)')
 @Controller('orders')
 export class OmsController {
   constructor(private readonly omsService: OmsService) {}
 
+  private getAuthed(req: AuthedRequest): {
+    userId: string;
+    role: string;
+    clientCompanyId?: string;
+  } {
+    return req.user as { userId: string; role: string; clientCompanyId?: string };
+  }
+
+  private typeGuard(req: AuthedRequest): asserts req is Required<AuthedRequest> {
+    if (!req.user) {
+      throw new Error('Authenticated user context is missing');
+    }
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get()
   @ApiOperation({ summary: '주문 목록 조회' })
-  @ApiQuery({ name: 'orderer_user_id', required: false, description: '주문자 UUID로 필터 (내 주문: /auth/me에서 userId 사용)' })
-  @ApiResponse({ status: 200, description: '주문 목록 (상세 포함)' })
-  listOrders(@Query('orderer_user_id') ordererUserId?: string) {
-    return this.omsService.listOrders({ orderer_user_id: ordererUserId });
+  @ApiBearerAuth('access-token')
+  @ApiQuery({ name: 'scope', required: false, enum: ['my', 'company', 'all'] })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiResponse({ status: 200, description: '주문 목록 (items + meta)' })
+  @ApiResponse({ status: 403, description: 'AUTH_FORBIDDEN' })
+  listOrders(@Req() req: AuthedRequest, @Query() query: ListOrdersQueryDto) {
+    this.typeGuard(req);
+    const auth = this.getAuthed(req);
+    return this.omsService.listOrdersForScope({
+      userId: auth.userId,
+      role: auth.role,
+      clientCompanyId: auth.clientCompanyId,
+      page: query.page,
+      limit: query.limit,
+      scope: query.scope,
+    });
   }
 
   @Post()
@@ -38,15 +77,19 @@ export class OmsController {
   }
 
   @Post(':orderId/details')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
   @ApiOperation({ summary: '주문 상세 라인 추가' })
   @ApiParam({ name: 'orderId', description: '주문 ID' })
   @ApiResponse({ status: 201, description: '추가된 상세 라인 목록' })
   @ApiResponse({ status: 404, description: 'ORDER_NOT_FOUND / PRODUCT_NOT_FOUND' })
   addOrderDetails(
+    @Req() req: AuthedRequest,
     @Param('orderId') orderId: string,
     @Body() dto: CreateOrderDetailDto,
   ) {
-    return this.omsService.addOrderDetails(orderId, dto);
+    this.typeGuard(req);
+    return this.omsService.addOrderDetails(orderId, dto, req.user.userId);
   }
 
   @Patch(':orderId')

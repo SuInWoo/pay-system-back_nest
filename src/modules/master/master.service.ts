@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AppException } from '../../common/errors/app.exception';
 import { CreateClientCompanyDto } from './dto/create-client-company.dto';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ProductSortBy, ProductSortOrder } from './dto/list-products-query.dto';
 import { ClientCompany } from './entities/client-company.entity';
 import { Product, ProductCategory } from './entities/product.entity';
 import { ClientCompanyRepository } from './repositories/client-company.repository';
@@ -62,17 +63,22 @@ export class MasterService {
 
   async listProducts(params?: {
     client_company_id?: string;
-    category?: ProductCategory;
+    category?: string;
     page?: number;
     limit?: number;
+    sortBy?: ProductSortBy;
+    sortOrder?: ProductSortOrder;
   }) {
     const page = Math.max(1, params?.page ?? 1);
     const limit = Math.min(100, Math.max(1, params?.limit ?? 20));
     const skip = (page - 1) * limit;
+    const categories = this.parseCategories(params?.category);
 
     const [rows, total] = await this.productRepo.findPage({
       clientCompanyId: params?.client_company_id,
-      category: params?.category,
+      categories,
+      sortBy: params?.sortBy,
+      sortOrder: params?.sortOrder,
       skip,
       take: limit,
     });
@@ -88,6 +94,16 @@ export class MasterService {
         hasPrev: page > 1 && totalPages > 0,
         hasNext: totalPages > 0 && page < totalPages,
       },
+    };
+  }
+
+  listProductCategories() {
+    return {
+      items: (Object.values(ProductCategory) as ProductCategory[]).map((code) => ({
+        code,
+        label: this.toCategoryLabel(code),
+        is_active: true,
+      })),
     };
   }
 
@@ -114,6 +130,26 @@ export class MasterService {
       created_at: p.createdAt,
       updated_at: p.updatedAt,
     };
+  }
+
+  private parseCategories(raw?: string): ProductCategory[] | undefined {
+    if (!raw?.trim()) return undefined;
+    const parsed = raw
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean) as ProductCategory[];
+    if (parsed.length === 0) return undefined;
+    const allowed = new Set(Object.values(ProductCategory));
+    if (parsed.some((v) => !allowed.has(v))) {
+      throw new AppException('VALIDATION_FAILED');
+    }
+    return Array.from(new Set(parsed));
+  }
+
+  private toCategoryLabel(code: ProductCategory): string {
+    if (code === ProductCategory.APPAREL) return '의류';
+    if (code === ProductCategory.ELECTRONICS) return '전자기기';
+    return '식품';
   }
 }
 

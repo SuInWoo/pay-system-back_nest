@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
+import { OrderRepository } from '../../../../src/modules/oms/repositories/order.repository';
 import { PaymentService } from '../../../../src/modules/payment/services/payment.service';
 import { Payment, PaymentStatus } from '../../../../src/modules/payment/entities/payment.entity';
 import { PaymentRepository } from '../../../../src/modules/payment/repositories/payment.repository';
@@ -27,13 +29,18 @@ describe('PaymentService (unit)', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentService,
+        { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: DataSource, useValue: dataSource },
         { provide: EventEmitter2, useValue: eventEmitter },
+        { provide: OrderRepository, useValue: { findByOrderId: jest.fn() } },
         {
           provide: PaymentRepository,
           useValue: {
             findByIdempotencyKey: jest.fn(),
             findByIdempotencyKeyAndStatus: jest.fn(),
+            findByOrderId: jest.fn(),
+            create: jest.fn(),
+            save: jest.fn(),
           },
         },
       ],

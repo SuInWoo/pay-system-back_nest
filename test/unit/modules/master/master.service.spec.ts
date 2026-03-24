@@ -93,7 +93,9 @@ describe('MasterService (unit)', () => {
 
       expect(productRepo.findPage).toHaveBeenCalledWith({
         clientCompanyId: undefined,
-        category: undefined,
+        categories: undefined,
+        sortBy: undefined,
+        sortOrder: undefined,
         skip: 10,
         take: 10,
       });
@@ -106,6 +108,18 @@ describe('MasterService (unit)', () => {
         hasPrev: true,
         hasNext: true,
       });
+    });
+
+    it('should parse comma-separated categories for filtering', async () => {
+      (productRepo.findPage as jest.Mock).mockResolvedValue([[], 0]);
+
+      await service.listProducts({ category: 'APPAREL,FOOD', page: 1, limit: 20 });
+
+      expect(productRepo.findPage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          categories: [ProductCategory.APPAREL, ProductCategory.FOOD],
+        }),
+      );
     });
   });
 });

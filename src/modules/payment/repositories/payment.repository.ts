@@ -14,6 +14,10 @@ export class PaymentRepository {
     return this.repo.findOne({ where: { idempotencyKey: key } });
   }
 
+  findByOrderId(orderId: string): Promise<Payment | null> {
+    return this.repo.findOne({ where: { orderId } });
+  }
+
   findByIdempotencyKeyAndStatus(
     key: string,
     status: PaymentStatus,
@@ -26,5 +30,13 @@ export class PaymentRepository {
   findAll(params?: { orderId?: string }): Promise<Payment[]> {
     const where = params?.orderId ? { orderId: params.orderId } : {};
     return this.repo.find({ where, order: { id: 'DESC' } });
+  }
+
+  create(data: Partial<Payment>): Payment {
+    return this.repo.create(data);
+  }
+
+  save(entity: Payment): Promise<Payment> {
+    return this.repo.save(entity);
   }
 }

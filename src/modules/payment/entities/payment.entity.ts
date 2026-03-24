@@ -27,5 +27,17 @@ export class Payment {
 
   @Column({ type: 'varchar', length: 64, name: 'order_id' })
   orderId!: string;
+
+  @Column({ type: 'varchar', length: 128, name: 'payment_key', nullable: true })
+  paymentKey!: string | null;
+
+  @Column({ type: 'varchar', length: 32, name: 'method', nullable: true })
+  method!: string | null;
+
+  @Column({ type: 'varchar', length: 32, name: 'provider_status', nullable: true })
+  providerStatus!: string | null;
+
+  @Column({ type: 'timestamptz', name: 'approved_at', nullable: true })
+  approvedAt!: Date | null;
 }
 

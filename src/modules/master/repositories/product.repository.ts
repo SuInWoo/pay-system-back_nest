@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { FindOptionsOrder, FindOptionsWhere, In, Repository } from 'typeorm';
 import { Product, ProductCategory } from '../entities/product.entity';
+import { ProductSortBy, ProductSortOrder } from '../dto/list-products-query.dto';
 
 @Injectable()
 export class ProductRepository {
@@ -22,24 +23,31 @@ export class ProductRepository {
     return this.repo.findOne({ where: { clientCompanyId, sku } });
   }
 
-  findAll(params?: { clientCompanyId?: string; category?: ProductCategory }): Promise<Product[]> {
+  findAll(params?: {
+    clientCompanyId?: string;
+    categories?: ProductCategory[];
+    sortBy?: ProductSortBy;
+    sortOrder?: ProductSortOrder;
+  }): Promise<Product[]> {
     const where = this.buildWhere(params);
     return this.repo.find({
       where,
-      order: { createdAt: 'DESC' },
+      order: this.buildOrder(params),
     });
   }
 
   findPage(params: {
     clientCompanyId?: string;
-    category?: ProductCategory;
+    categories?: ProductCategory[];
+    sortBy?: ProductSortBy;
+    sortOrder?: ProductSortOrder;
     skip: number;
     take: number;
   }): Promise<[Product[], number]> {
     const where = this.buildWhere(params);
     return this.repo.findAndCount({
       where,
-      order: { createdAt: 'DESC' },
+      order: this.buildOrder(params),
       skip: params.skip,
       take: params.take,
     });
@@ -55,11 +63,22 @@ export class ProductRepository {
 
   private buildWhere(params?: {
     clientCompanyId?: string;
-    category?: ProductCategory;
+    categories?: ProductCategory[];
   }): FindOptionsWhere<Product> {
     return {
       ...(params?.clientCompanyId ? { clientCompanyId: params.clientCompanyId } : {}),
-      ...(params?.category ? { category: params.category } : {}),
+      ...(params?.categories?.length ? { category: In(params.categories) } : {}),
     };
+  }
+
+  private buildOrder(params?: {
+    sortBy?: ProductSortBy;
+    sortOrder?: ProductSortOrder;
+  }): FindOptionsOrder<Product> {
+    const sortOrder = (params?.sortOrder ?? 'desc').toUpperCase() as 'ASC' | 'DESC';
+    const sortBy = params?.sortBy ?? 'created_at';
+    if (sortBy === 'price') return { price: sortOrder };
+    if (sortBy === 'name') return { name: sortOrder };
+    return { createdAt: sortOrder };
   }
 }

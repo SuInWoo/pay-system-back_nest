@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsInt,
@@ -9,6 +9,7 @@ import {
   ValidateNested,
   IsArray,
   ArrayMinSize,
+  IsOptional,
 } from 'class-validator';
 
 export class OrderDetailLineDto {
@@ -34,4 +35,33 @@ export class CreateOrderDetailDto {
   @ValidateNested({ each: true })
   @Type(() => OrderDetailLineDto)
   items!: OrderDetailLineDto[];
+
+  @ApiPropertyOptional({ description: '주문자 회원 UUID' })
+  @IsOptional()
+  @IsUUID()
+  orderer_user_id?: string;
+
+  @ApiPropertyOptional({ description: '배송 주소', maxLength: 1000 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  address?: string;
+
+  @ApiPropertyOptional({ description: '주문자 이름', maxLength: 120 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  orderer_name?: string;
+
+  @ApiPropertyOptional({ description: '주문자 이메일', maxLength: 320 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(320)
+  orderer_email?: string;
+
+  @ApiPropertyOptional({ description: '주문자 연락처', maxLength: 32 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  orderer_phone?: string;
 }

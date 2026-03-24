@@ -1,7 +1,12 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional, IsUUID, Max, Min } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 import { ProductCategory } from '../entities/product.entity';
+
+export const PRODUCT_SORT_BY = ['created_at', 'price', 'name'] as const;
+export type ProductSortBy = (typeof PRODUCT_SORT_BY)[number];
+export const PRODUCT_SORT_ORDER = ['asc', 'desc'] as const;
+export type ProductSortOrder = (typeof PRODUCT_SORT_ORDER)[number];
 
 export class ListProductsQueryDto {
   @ApiPropertyOptional({ description: '고객사 UUID로 필터' })
@@ -9,10 +14,13 @@ export class ListProductsQueryDto {
   @IsUUID()
   client_company_id?: string;
 
-  @ApiPropertyOptional({ description: '카테고리 필터', enum: ProductCategory })
+  @ApiPropertyOptional({
+    description: '카테고리 필터(단일 또는 콤마 구분 복수)',
+    example: 'APPAREL,FOOD',
+  })
   @IsOptional()
-  @IsEnum(ProductCategory)
-  category?: ProductCategory;
+  @IsString()
+  category?: string;
 
   @ApiPropertyOptional({ description: '페이지 번호(1부터)', example: 1, default: 1 })
   @IsOptional()
@@ -28,4 +36,22 @@ export class ListProductsQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @ApiPropertyOptional({
+    description: '정렬 컬럼 (기본: created_at)',
+    enum: PRODUCT_SORT_BY,
+    default: 'created_at',
+  })
+  @IsOptional()
+  @IsIn(PRODUCT_SORT_BY)
+  sortBy?: ProductSortBy;
+
+  @ApiPropertyOptional({
+    description: '정렬 방향 (기본: desc)',
+    enum: PRODUCT_SORT_ORDER,
+    default: 'desc',
+  })
+  @IsOptional()
+  @IsIn(PRODUCT_SORT_ORDER)
+  sortOrder?: ProductSortOrder;
 }

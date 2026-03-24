@@ -1,7 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
+import { DataSource } from 'typeorm';
 import { AppException } from '../../../common/errors/app.exception';
 import { ProductRepository } from '../../master/repositories/product.repository';
+import { ROLE_CODE } from '../../users/entities/role.entity';
 import { PaymentCreatedEvent } from '../../payment/events/payment-created.event';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { CreateOrderDetailDto } from '../dto/create-order-detail.dto';
@@ -14,6 +16,7 @@ import { OrderRepository } from '../repositories/order.repository';
 @Injectable()
 export class OmsService {
   constructor(
+    private readonly dataSource: DataSource,
     private readonly orderRepo: OrderRepository,
     private readonly orderDetailRepo: OrderDetailRepository,
     private readonly productRepo: ProductRepository,
@@ -105,11 +108,59 @@ export class OmsService {
     return this.orderRepo.save(order);
   }
 
-  async listOrders(params?: { orderer_user_id?: string }) {
-    const rows = params?.orderer_user_id
-      ? await this.orderRepo.findByOrdererUserId(params.orderer_user_id)
-      : await this.orderRepo.findAll();
-    return Promise.all(rows.map((o) => this.getOrderWithDetails(o.orderId)));
+  async listOrdersForScope(params: {
+    userId: string;
+    role: string;
+    clientCompanyId?: string;
+    page?: number;
+    limit?: number;
+    scope?: 'my' | 'company' | 'all';
+  }) {
+    const page = Math.max(1, params.page ?? 1);
+    const limit = Math.min(100, Math.max(1, params.limit ?? 20));
+    const skip = (page - 1) * limit;
+    const scope = params.scope ?? 'my';
+
+    let rows: Order[] = [];
+    let total = 0;
+    if (scope === 'my') {
+      [rows, total] = await this.orderRepo.findPageByOrdererUserId({
+        ordererUserId: params.userId,
+        skip,
+        take: limit,
+      });
+    } else if (scope === 'company') {
+      if (params.role !== ROLE_CODE.CLIENT_ADMIN) {
+        throw new AppException('AUTH_FORBIDDEN');
+      }
+      if (!params.clientCompanyId) {
+        throw new AppException('AUTH_FORBIDDEN', { detail: 'client_company_id is not mapped to user' });
+      }
+      [rows, total] = await this.orderRepo.findPageByClientCompanyId({
+        clientCompanyId: params.clientCompanyId,
+        skip,
+        take: limit,
+      });
+    } else {
+      if (params.role !== ROLE_CODE.DEVELOPER) {
+        throw new AppException('AUTH_FORBIDDEN');
+      }
+      [rows, total] = await this.orderRepo.findPageAll({ skip, take: limit });
+    }
+
+    const summaries = await this.toOrderSummaries(rows);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+    return {
+      items: summaries,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages,
+        hasPrev: page > 1 && totalPages > 0,
+        hasNext: totalPages > 0 && page < totalPages,
+      },
+    };
   }
 
   async getOrderWithDetails(orderId: string) {
@@ -138,7 +189,7 @@ export class OmsService {
     };
   }
 
-  async addOrderDetails(orderId: string, dto: CreateOrderDetailDto) {
+  async addOrderDetails(orderId: string, dto: CreateOrderDetailDto, requesterUserId?: string) {
     let order = await this.orderRepo.findByOrderId(orderId);
     if (!order) {
       // 주문이 없으면 자동 생성 (클라이언트 생성 order_id 플로우 지원)
@@ -146,13 +197,13 @@ export class OmsService {
         orderId,
         deliveryCodeType: 'DELIVERY_STATUS',
         deliveryStatus: DeliveryStatus.WAITING,
-        address: '',
+        address: dto.address ?? '',
         totalQuantity: 0,
         totalAmount: 0,
-        ordererUserId: null,
-        ordererName: null,
-        ordererPhone: null,
-        ordererEmail: null,
+        ordererUserId: dto.orderer_user_id ?? requesterUserId ?? null,
+        ordererName: dto.orderer_name ?? null,
+        ordererPhone: dto.orderer_phone ?? null,
+        ordererEmail: dto.orderer_email ?? null,
       });
       order = await this.orderRepo.save(newOrder);
     }
@@ -180,10 +231,20 @@ export class OmsService {
     }
 
     const agg = await this.orderDetailRepo.getOrderTotals(orderId);
-    await this.orderRepo.update(orderId, {
+    const partialForOrder: Partial<Order> = {
       totalQuantity: agg.totalQuantity,
       totalAmount: agg.totalAmount,
-    });
+    };
+    if (dto.orderer_name !== undefined) partialForOrder.ordererName = dto.orderer_name;
+    if (dto.orderer_phone !== undefined) partialForOrder.ordererPhone = dto.orderer_phone;
+    if (dto.orderer_email !== undefined) partialForOrder.ordererEmail = dto.orderer_email;
+    if (dto.orderer_user_id !== undefined) {
+      partialForOrder.ordererUserId = dto.orderer_user_id;
+    } else if (!order.ordererUserId && requesterUserId) {
+      partialForOrder.ordererUserId = requesterUserId;
+    }
+    if (dto.address !== undefined) partialForOrder.address = dto.address;
+    await this.orderRepo.update(orderId, partialForOrder);
 
     return saved.map((d) => ({
       order_id: d.orderId,
@@ -194,6 +255,42 @@ export class OmsService {
       quantity: d.quantity,
       unit_price: d.unitPrice,
       line_amount: d.quantity * d.unitPrice,
+    }));
+  }
+
+  private async toOrderSummaries(rows: Order[]) {
+    if (rows.length === 0) return [];
+    const orderIds = rows.map((r) => r.orderId);
+    const paymentRows = await this.dataSource
+      .createQueryBuilder()
+      .select('p.order_id', 'orderId')
+      .addSelect('p.status', 'status')
+      .from('payments', 'p')
+      .where('p.order_id IN (:...orderIds)', { orderIds })
+      .getRawMany<{ orderId: string; status: string }>();
+    const paidSet = new Set(
+      paymentRows.filter((p) => p.status === 'SUCCEEDED').map((p) => p.orderId),
+    );
+
+    const firstCompanyRows = await this.dataSource
+      .createQueryBuilder()
+      .select('DISTINCT ON (od.order_id) od.order_id', 'orderId')
+      .addSelect('od.client_company_id', 'clientCompanyId')
+      .from('order_detail', 'od')
+      .where('od.order_id IN (:...orderIds)', { orderIds })
+      .orderBy('od.order_id', 'ASC')
+      .addOrderBy('od.line_seq', 'ASC')
+      .getRawMany<{ orderId: string; clientCompanyId: string }>();
+    const companyMap = new Map(firstCompanyRows.map((r) => [r.orderId, r.clientCompanyId]));
+
+    return rows.map((o) => ({
+      order_id: o.orderId,
+      status: paidSet.has(o.orderId) ? 'PAID' : 'PENDING',
+      amount: o.totalAmount,
+      created_at: o.createdAt,
+      client_company_id: companyMap.get(o.orderId),
+      orderer_name: o.ordererName ?? undefined,
+      orderer_email: o.ordererEmail ?? undefined,
     }));
   }
 }
