@@ -6,7 +6,7 @@ import { ProductRepository } from '../../master/repositories/product.repository'
 import { ROLE_CODE } from '../../users/entities/role.entity';
 import { PaymentCreatedEvent } from '../../payment/events/payment-created.event';
 import { CreateOrderDto } from '../dto/create-order.dto';
-import { CreateOrderDetailDto } from '../dto/create-order-detail.dto';
+import { CreateOrderDetailDto, OrderDetailLineDto } from '../dto/create-order-detail.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
 import { OrderDetail } from '../entities/order-detail.entity';
 import { DeliveryStatus, Order } from '../entities/order.entity';
@@ -23,11 +23,49 @@ export class OmsService {
   ) {}
 
   async createOrder(dto: CreateOrderDto) {
-    const existing = await this.orderRepo.findByOrderId(dto.order_id);
+    const orderGroupId = await this.generateOrderGroupId();
+
+    // 회사별로 라인을 분리해 주문을 생성하여 고객사 단위 조회/정산 기준을 일치시킵니다.
+    const groupedItems = await this.groupItemsByCompany(dto.items);
+    const companyIds = Array.from(groupedItems.keys());
+    const createdOrderIds: string[] = [];
+    for (let i = 0; i < companyIds.length; i += 1) {
+      const companyId = companyIds[i];
+      const orderId = this.buildSplitOrderId(orderGroupId, i, companyIds.length);
+      const saved = await this.createSingleOrder(orderId, dto, groupedItems.get(companyId) ?? []);
+      createdOrderIds.push(saved.orderId);
+    }
+
+    const orders = await Promise.all(createdOrderIds.map((orderId) => this.getOrderWithDetails(orderId)));
+    const total_amount = orders.reduce((sum, order) => sum + order.total_amount, 0);
+    const total_quantity = orders.reduce((sum, order) => sum + order.total_quantity, 0);
+    return {
+      order_group_id: orderGroupId,
+      total_amount,
+      total_quantity,
+      orders,
+    };
+  }
+
+  private async createSingleOrder(
+    orderId: string,
+    dto: Pick<
+      CreateOrderDto,
+      'address' | 'orderer_user_id' | 'orderer_name' | 'orderer_phone' | 'orderer_email'
+    >,
+    items: Array<{
+      clientCompanyId: string;
+      sku: string;
+      productName: string;
+      quantity: number;
+      unitPrice: number;
+    }>,
+  ): Promise<Order> {
+    const existing = await this.orderRepo.findByOrderId(orderId);
     if (existing) throw new AppException('ORDER_ALREADY_EXISTS');
 
     const order = this.orderRepo.create({
-      orderId: dto.order_id,
+      orderId,
       deliveryCodeType: 'DELIVERY_STATUS',
       deliveryStatus: DeliveryStatus.WAITING,
       address: dto.address ?? '',
@@ -40,34 +78,78 @@ export class OmsService {
     });
     const saved = await this.orderRepo.save(order);
 
-    if (dto.items?.length) {
-      let nextSeq = 1;
-      for (const item of dto.items) {
-        const product = await this.productRepo.findByClientCompanyIdAndSku(
-          item.client_company_id,
-          item.sku,
-        );
-        if (!product) throw new AppException('PRODUCT_NOT_FOUND');
+    if (items.length === 0) return saved;
 
-        const detail = this.orderDetailRepo.create({
-          orderId: saved.orderId,
-          lineSeq: nextSeq++,
-          clientCompanyId: product.clientCompanyId,
-          sku: product.sku,
-          productName: product.name,
-          quantity: item.quantity,
-          unitPrice: product.price,
-        });
-        await this.orderDetailRepo.save(detail);
-      }
-      const agg = await this.orderDetailRepo.getOrderTotals(saved.orderId);
-      await this.orderRepo.update(saved.orderId, {
-        totalQuantity: agg.totalQuantity,
-        totalAmount: agg.totalAmount,
+    let nextSeq = 1;
+    for (const item of items) {
+      const detail = this.orderDetailRepo.create({
+        orderId: saved.orderId,
+        lineSeq: nextSeq++,
+        clientCompanyId: item.clientCompanyId,
+        sku: item.sku,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
       });
+      await this.orderDetailRepo.save(detail);
     }
+    const agg = await this.orderDetailRepo.getOrderTotals(saved.orderId);
+    await this.orderRepo.update(saved.orderId, {
+      totalQuantity: agg.totalQuantity,
+      totalAmount: agg.totalAmount,
+    });
+    return saved;
+  }
 
-    return this.getOrderWithDetails(saved.orderId);
+  private async groupItemsByCompany(items: OrderDetailLineDto[]) {
+    const grouped = new Map<
+      string,
+      Array<{
+        clientCompanyId: string;
+        sku: string;
+        productName: string;
+        quantity: number;
+        unitPrice: number;
+      }>
+    >();
+    for (const item of items) {
+      const product = await this.productRepo.findByClientCompanyIdAndSku(item.client_company_id, item.sku);
+      if (!product) throw new AppException('PRODUCT_NOT_FOUND');
+      const bucket = grouped.get(product.clientCompanyId) ?? [];
+      bucket.push({
+        clientCompanyId: product.clientCompanyId,
+        sku: product.sku,
+        productName: product.name,
+        quantity: item.quantity,
+        unitPrice: product.price,
+      });
+      grouped.set(product.clientCompanyId, bucket);
+    }
+    return grouped;
+  }
+
+  private buildSplitOrderId(baseOrderId: string, idx: number, totalGroups: number): string {
+    if (totalGroups <= 1) return baseOrderId;
+    const suffix = String(idx + 1).padStart(2, '0');
+    const splitId = `${baseOrderId}-${suffix}`;
+    if (splitId.length > 64) {
+      throw new AppException('INVALID_QUERY', { detail: 'order_id is too long for split mode' });
+    }
+    return splitId;
+  }
+
+  private async generateOrderGroupId(): Promise<string> {
+    const rows = await this.dataSource.query("SELECT nextval('order_seq') AS seq");
+    const seq = Number(rows?.[0]?.seq ?? 0);
+    if (!Number.isFinite(seq) || seq <= 0) {
+      throw new AppException('INTERNAL_ERROR');
+    }
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const n = String(seq).padStart(6, '0');
+    return `ORD-${y}${m}${d}-${n}`;
   }
 
   async updateOrder(orderId: string, dto: UpdateOrderDto) {
@@ -115,38 +197,37 @@ export class OmsService {
     page?: number;
     limit?: number;
     scope?: 'my' | 'company' | 'all';
+    orderId?: string;
+    keyword?: string;
   }) {
     const page = Math.max(1, params.page ?? 1);
     const limit = Math.min(100, Math.max(1, params.limit ?? 20));
     const skip = (page - 1) * limit;
     const scope = params.scope ?? 'my';
+    const role = params.role;
+    const keyword = params.keyword?.trim();
 
-    let rows: Order[] = [];
-    let total = 0;
-    if (scope === 'my') {
-      [rows, total] = await this.orderRepo.findPageByOrdererUserId({
-        ordererUserId: params.userId,
-        skip,
-        take: limit,
-      });
-    } else if (scope === 'company') {
-      if (params.role !== ROLE_CODE.CLIENT_ADMIN) {
-        throw new AppException('AUTH_FORBIDDEN');
-      }
-      if (!params.clientCompanyId) {
-        throw new AppException('AUTH_FORBIDDEN', { detail: 'client_company_id is not mapped to user' });
-      }
-      [rows, total] = await this.orderRepo.findPageByClientCompanyId({
-        clientCompanyId: params.clientCompanyId,
-        skip,
-        take: limit,
-      });
-    } else {
-      if (params.role !== ROLE_CODE.DEVELOPER) {
-        throw new AppException('AUTH_FORBIDDEN');
-      }
-      [rows, total] = await this.orderRepo.findPageAll({ skip, take: limit });
-    }
+    this.assertScopePermission(scope, role);
+
+    const hasKeyword = !!keyword;
+    const [rows, total] = hasKeyword
+      ? await this.searchWithKeyword({
+          scope,
+          userId: params.userId,
+          clientCompanyId: params.clientCompanyId,
+          orderId: params.orderId,
+          keyword: keyword!,
+          skip,
+          take: limit,
+        })
+      : await this.findByScope({
+          scope,
+          userId: params.userId,
+          clientCompanyId: params.clientCompanyId,
+          orderId: params.orderId,
+          skip,
+          take: limit,
+        });
 
     const summaries = await this.toOrderSummaries(rows);
     const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
@@ -161,6 +242,89 @@ export class OmsService {
         hasNext: totalPages > 0 && page < totalPages,
       },
     };
+  }
+
+  private async findByScope(params: {
+    scope: 'my' | 'company' | 'all';
+    userId: string;
+    clientCompanyId?: string;
+    orderId?: string;
+    skip: number;
+    take: number;
+  }): Promise<[Order[], number]> {
+    if (params.scope === 'my') {
+      return this.orderRepo.findPageByOrdererUserIdWithFilter({
+        ordererUserId: params.userId,
+        orderId: params.orderId,
+        skip: params.skip,
+        take: params.take,
+      });
+    }
+    if (params.scope === 'company') {
+      if (!params.clientCompanyId) {
+        throw new AppException('FORBIDDEN_SCOPE');
+      }
+      return this.orderRepo.findPageByClientCompanyId({
+        clientCompanyId: params.clientCompanyId,
+        orderId: params.orderId,
+        skip: params.skip,
+        take: params.take,
+      });
+    }
+    return this.orderRepo.findPageAll({
+      orderId: params.orderId,
+      skip: params.skip,
+      take: params.take,
+    });
+  }
+
+  private async searchWithKeyword(params: {
+    scope: 'my' | 'company' | 'all';
+    userId: string;
+    clientCompanyId?: string;
+    orderId?: string;
+    keyword: string;
+    skip: number;
+    take: number;
+  }): Promise<[Order[], number]> {
+    let scopedRows: Order[] = [];
+    if (params.scope === 'my') {
+      scopedRows = await this.orderRepo.findByOrdererUserIdWithFilter({
+        ordererUserId: params.userId,
+        orderId: params.orderId,
+      });
+    } else if (params.scope === 'company') {
+      if (!params.clientCompanyId) {
+        throw new AppException('FORBIDDEN_SCOPE');
+      }
+      scopedRows = await this.orderRepo.findByClientCompanyIdWithFilter({
+        clientCompanyId: params.clientCompanyId,
+        orderId: params.orderId,
+      });
+    } else {
+      scopedRows = await this.orderRepo.findAllWithFilter({ orderId: params.orderId });
+    }
+
+    const lowered = params.keyword.toLowerCase();
+    const filtered = scopedRows.filter((o) =>
+      [o.orderId, o.ordererName ?? '', o.ordererEmail ?? '']
+        .some((v) => v.toLowerCase().includes(lowered)),
+    );
+    return [filtered.slice(params.skip, params.skip + params.take), filtered.length];
+  }
+
+  private assertScopePermission(scope: 'my' | 'company' | 'all', role: string): void {
+    const isAdmin = role === 'ADMIN' || role === ROLE_CODE.DEVELOPER;
+    if (isAdmin) return;
+    if (role === ROLE_CODE.CUSTOMER && scope !== 'my') {
+      throw new AppException('FORBIDDEN_SCOPE');
+    }
+    if (role === ROLE_CODE.CLIENT_ADMIN && scope !== 'company') {
+      throw new AppException('FORBIDDEN_SCOPE');
+    }
+    if (role !== ROLE_CODE.CUSTOMER && role !== ROLE_CODE.CLIENT_ADMIN) {
+      throw new AppException('FORBIDDEN_SCOPE');
+    }
   }
 
   async getOrderWithDetails(orderId: string) {

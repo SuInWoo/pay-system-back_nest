@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListOrdersQueryDto {
   @ApiPropertyOptional({ description: '페이지 번호(1부터)', default: 1, example: 1 })
@@ -26,4 +26,17 @@ export class ListOrdersQueryDto {
   @IsOptional()
   @IsIn(['my', 'company', 'all'])
   scope?: 'my' | 'company' | 'all';
+
+  @ApiPropertyOptional({ description: '주문 ID 단건 필터', example: 'ORD-20260326-000123' })
+  @IsOptional()
+  @IsString()
+  order_id?: string;
+
+  @ApiPropertyOptional({
+    description: '검색어 (주문자명/이메일/주문ID)',
+    example: '홍길동',
+  })
+  @IsOptional()
+  @IsString()
+  keyword?: string;
 }

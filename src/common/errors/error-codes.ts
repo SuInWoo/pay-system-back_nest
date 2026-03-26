@@ -26,6 +26,16 @@ export const ERROR_CODES = {
     message: '접근 권한이 없습니다.',
     statusCode: HttpStatus.FORBIDDEN,
   },
+  /** 인증 필요(클라이언트 계약용 단순 코드) */
+  UNAUTHORIZED: {
+    message: '인증이 필요합니다.',
+    statusCode: HttpStatus.UNAUTHORIZED,
+  },
+  /** scope 권한 불일치 */
+  FORBIDDEN_SCOPE: {
+    message: '요청한 scope에 대한 권한이 없습니다.',
+    statusCode: HttpStatus.FORBIDDEN,
+  },
 
   // --- 회원 (4xx) ---
   /** 역할 미존재 */
@@ -119,6 +129,11 @@ export const ERROR_CODES = {
   /** DTO/요청 바디 검증 실패 */
   VALIDATION_FAILED: {
     message: '입력값이 올바르지 않습니다.',
+    statusCode: HttpStatus.BAD_REQUEST,
+  },
+  /** 쿼리 파라미터 검증 실패 */
+  INVALID_QUERY: {
+    message: '쿼리 파라미터가 올바르지 않습니다.',
     statusCode: HttpStatus.BAD_REQUEST,
   },
 

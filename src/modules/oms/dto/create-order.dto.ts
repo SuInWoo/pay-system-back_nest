@@ -12,11 +12,6 @@ import {
 import { OrderDetailLineDto } from './create-order-detail.dto';
 
 export class CreateOrderDto {
-  @ApiProperty({ description: '주문 ID', maxLength: 64, example: 'ORD-20250318-000001' })
-  @IsString()
-  @MaxLength(64)
-  order_id!: string;
-
   @ApiPropertyOptional({ description: '배송 주소', default: '' })
   @IsOptional()
   @IsString()
@@ -45,14 +40,13 @@ export class CreateOrderDto {
   @MaxLength(320)
   orderer_email?: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     type: [OrderDetailLineDto],
-    description: '주문 상세 라인 (생략 시 빈 주문으로 생성)',
+    description: '주문 상세 라인 목록 (고객사 단위 분할 기준)',
   })
-  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ValidateNested({ each: true })
   @Type(() => OrderDetailLineDto)
-  items?: OrderDetailLineDto[];
+  items!: OrderDetailLineDto[];
 }
