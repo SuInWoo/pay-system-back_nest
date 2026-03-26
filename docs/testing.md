@@ -46,9 +46,9 @@ test/
 | 대상 | 파일 | 케이스 요약 |
 |------|------|-------------|
 | **App** | `test/e2e/app.e2e-spec.ts` | GET / → 200 (DB 없이 실행) |
-| **Auth API** | `test/e2e/auth.e2e-spec.ts` | register, login, me, logout (에러 코드 검증 포함) |
-| **Master API** | `test/e2e/master.e2e-spec.ts` | client-companies/products CRUD 및 404/409 검증 |
-| **Payment API** | `test/e2e/payment.idempotency.int.spec.ts` | 멱등·동시 요청 1건 생성 |
+| **Auth API** | `test/e2e/auth.e2e-spec.ts` | register + login + me 플로우 검증 |
+| **Master API** | `test/e2e/master.e2e-spec.ts` | client-company 생성 → product 생성 → product 목록 조회 |
+| **Payment API** | `test/e2e/payment.idempotency.int.spec.ts` | 동일 idempotency_key 재요청 시 동일 payment id 반환 |
 
 ## 실행 방법
 

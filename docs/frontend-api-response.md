@@ -17,7 +17,7 @@
 
 | 플로우 | API | 설명 |
 |--------|-----|------|
-| **A** | `POST /orders` | `order_id` + `items`(옵션)로 주문·상세를 한 번에 생성 |
+| **A** | `POST /orders` | `items[]` 기준으로 주문 묶음(`order_group_id`)과 분할 주문(`orders[]`) 생성 |
 | **B** | `POST /orders/:orderId/details` | 클라이언트에서 `order_id` 생성 후 상세만 추가. **주문이 없으면 자동 생성** |
 
 **플로우 B 사용 시**
@@ -44,12 +44,12 @@
 ### 응답: ✅ 추가 완료
 
 - **API**: `GET /orders`
-- **쿼리**: `orderer_user_id` (선택) — 주문자 UUID로 필터
+- **쿼리**: `scope`, `page`, `limit`, `order_id`, `keyword`
 - **내 주문 조회 예시**  
-  1. `GET /auth/me`로 `userId` 조회  
-  2. `GET /orders?orderer_user_id={userId}` 호출
-- **응답**: 주문 목록 (각 주문에 상세 라인 포함)
-- **파라미터 없음**: 전체 주문 목록 반환 (관리자용)
+  1. `GET /auth/me`로 사용자 인증 정보 확인  
+  2. `GET /orders?scope=my` 호출
+- **응답**: `items` + `meta` 페이징 구조
+- **권한 규칙**: CUSTOMER는 `my`, CLIENT_ADMIN은 `company`, ADMIN/DEVELOPER는 `all` 사용 가능
 
 ---
 
@@ -59,7 +59,7 @@
 
 - **API**: `GET /payments`
 - **쿼리**: `order_id` (선택) — 주문 ID로 필터
-- **응답**: 결제 목록 (id, order_id, amount, status, idempotency_key)
+- **응답**: 결제 목록 (id, order_id, amount, status, idempotency_key, payment_key, provider_status, method, approved_at)
 - **참고**: 현재 인증/권한 미적용. 필요 시 `JwtAuthGuard` 등으로 관리자만 호출 가능하도록 보완 권장
 
 ---
@@ -175,6 +175,33 @@
 
 ---
 
+## 7. 고객사·상품 API 인증
+
+### 응답: 현재 인증 없음 (공개)
+
+| API | 인증 | 비고 |
+|-----|------|------|
+| `GET /master/client-companies` | 없음 | 공개 |
+| `GET /master/products` | 없음 | 공개 |
+| `GET /master/products/:id` | 없음 | 공개 |
+| `POST /master/client-companies` | 없음 | 관리자 전용으로 제한 필요 시 별도 적용 |
+| `POST /master/products` | 없음 | 관리자 전용으로 제한 필요 시 별도 적용 |
+
+상품·고객사 목록을 비로그인 상태로 노출하는 현재 설계에 맞춰, 조회 API는 인증 없이 사용 가능합니다.
+
+---
+
+## 8. API 베이스 경로
+
+### 응답: 확인 결과
+
+- **실제 API 경로**: 루트 기준 (`/`), `/api` 접두사 없음
+- **예시**: `http://localhost:8080/auth/login`, `http://localhost:8080/master/products`
+- **Swagger UI**: `http://localhost:8080/api`
+- **프론트엔드 사용**: `NEXT_PUBLIC_API_URL=http://localhost:8080` 사용이 맞습니다.
+
+---
+
 ## 9. 회원가입 시 이름 필드
 
 ### 응답: ✅ 추가 완료
@@ -212,41 +239,12 @@
 
 - `name`: 최대 120자
 
----
-
-## 7. 고객사·상품 API 인증
-
-### 응답: 현재 인증 없음 (공개)
-
-| API | 인증 | 비고 |
-|-----|------|------|
-| `GET /master/client-companies` | 없음 | 공개 |
-| `GET /master/products` | 없음 | 공개 |
-| `GET /master/products/:id` | 없음 | 공개 |
-| `POST /master/client-companies` | 없음 | 관리자 전용으로 제한 필요 시 별도 적용 |
-| `POST /master/products` | 없음 | 관리자 전용으로 제한 필요 시 별도 적용 |
-
-상품·고객사 목록을 비로그인 상태로 노출하는 현재 설계에 맞춰, 조회 API는 인증 없이 사용 가능합니다.
-
----
-
-## 8. API 베이스 경로
-
-### 응답: 확인 결과
-
-- **실제 API 경로**: 루트 기준 (`/`), `/api` 접두사 없음
-- **예시**: `http://localhost:8080/auth/login`, `http://localhost:8080/master/products`
-- **Swagger UI**: `http://localhost:8080/api`
-- **프론트엔드 사용**: `NEXT_PUBLIC_API_URL=http://localhost:8080` 사용이 맞습니다.
-
----
-
 ## API 엔드포인트 요약
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
 | POST | /orders | 주문 생성 |
-| GET | /orders | 주문 목록 (`?orderer_user_id=` 옵션) |
+| GET | /orders | 주문 목록 (`scope/page/limit/order_id/keyword`) |
 | GET | /orders/:orderId | 주문 단건 조회 |
 | POST | /orders/:orderId/details | 주문 상세 추가 (주문 없으면 자동 생성) |
 | PATCH | /orders/:orderId | 주문 수정 |
@@ -262,8 +260,8 @@
 | GET | /admin/menus/:id | 메뉴 단건 조회 |
 | PATCH | /admin/menus/:id | 메뉴 수정 |
 | DELETE | /admin/menus/:id | 메뉴 삭제 |
-| GET | /admin/roles/:id/menus | 역할별 메뉴 ID 목록 |
-| PATCH | /admin/roles/:id/menus | 역할별 메뉴 설정 |
+| GET | /admin/roles/:roleId/menus | 역할별 메뉴 ID 목록 |
+| PATCH | /admin/roles/:roleId/menus | 역할별 메뉴 설정 |
 
 ---
 
