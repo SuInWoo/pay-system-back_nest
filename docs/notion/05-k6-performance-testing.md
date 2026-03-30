@@ -21,6 +21,10 @@
 - `POST /payments` 결제 생성(멱등 키 포함)
 - `GET /orders/:orderId` 주문 조회
 - 가능 시 `POST /orders/:orderId/details` 상세 추가
+- (신규) `GET /orders/:orderId/status-history` 주문 상태 이력 조회
+- (신규) `POST /orders/:orderId/shipments` 출고 생성 + `POST /orders/:orderId/shipments/:shipmentId/dispatch` 출고 확정
+- (신규) `POST /payments/:paymentId/refunds` 부분 환불 생성
+- (신규) `POST /internal/outbox/process` outbox 수동 처리(운영 콘솔용)
 
 ### 부하 패턴
 
@@ -47,7 +51,7 @@
 
 - 옵션: `scenarios.smoke`, `thresholds`
 - 유틸: `jsonHeaders`, `registerOrLogin`, `ensureMasterData`
-- 메인 시나리오: 결제 생성 -> 주문 조회 -> 주문 상세 추가
+- 메인 시나리오: 결제 생성 -> 주문 조회 -> 주문 상세 추가 -> (옵션) 상태이력/출고/환불/outbox 운영 호출
 
 ---
 
@@ -57,16 +61,66 @@
 
 - `k6 run k6/pay-system.smoke.js`
 - `BASE_URL="http://localhost:8080" VUS=5 ITER=20 k6 run k6/pay-system.smoke.js`
+- 신규 기능 포함(기본값은 모두 ON):
+  - `BASE_URL="http://localhost:8080" VUS=3 ITER=10 ENABLE_STATUS_HISTORY=1 ENABLE_SHIPMENT=1 ENABLE_REFUND=1 ENABLE_OUTBOX_OPS=1 k6 run k6/pay-system.smoke.js`
+- 특정 기능만 끄기(예: 출고/환불 제외):
+  - `ENABLE_SHIPMENT=0 ENABLE_REFUND=0 k6 run k6/pay-system.smoke.js`
+
+### k6 설치(로컬)
+
+- macOS(Homebrew):
+  - `brew install k6`
+- 설치 확인:
+  - `k6 version`
 
 ### 결과에서 보는 포인트
 
 - 응답 시간 분포
 - 실패 요청 유형(타임아웃, 5xx 등)
 - `auth/login`, `payments`, `orders/:id` 구간별 병목 여부
+- (신규) `status-history`, `shipments`, `refunds`, `internal/outbox/process` 구간별 지연/실패율
 
 ---
 
-## 5. 앞으로의 디벨롭 계획
+## 5. 신규 기능(k6) 테스트 커버리지
+
+### 5-1) 주문 상태 이력 조회
+
+- 호출: `GET /orders/:orderId/status-history`
+- 기대: 200 + 배열 응답
+- 포인트: 주문 생성 직후에도 이력이 최소 1건 이상 쌓이는지(초기 `CREATED` 등)
+
+### 5-2) 출고 생성/확정(배송 시작)
+
+- 호출:
+  - `POST /orders/:orderId/shipments`
+  - `POST /orders/:orderId/shipments/:shipmentId/dispatch`
+- 전제 조건: 주문 상세(`order_detail`)가 존재해야 SKU/수량 검증이 통과함  
+  - k6에서는 `ensureMasterData`로 SKU를 확보한 뒤 `POST /orders/:orderId/details`를 먼저 호출해서 조건을 만족시킨다.
+- 대표 에러(정상적으로는 발생하지 않아야 함):
+  - `OMS_SHIPMENT_INVALID_SKU` (400)
+  - `OMS_SHIPMENT_QUANTITY_EXCEEDED` (422)
+  - `OMS_SHIPMENT_NOT_FOUND` (404)
+
+### 5-3) 부분 환불
+
+- 호출: `POST /payments/:paymentId/refunds`
+- 전제 조건: 결제가 `SUCCEEDED`여야 함  
+  - k6는 `POST /payments` 응답의 `id(paymentId)`를 사용한다.
+- 대표 에러(정상적으로는 발생하지 않아야 함):
+  - `PAYMENT_NOT_FOUND` (404)
+  - `PAYMENT_NOT_REFUNDABLE` (409)
+  - `OMS_REFUND_AMOUNT_EXCEEDED` (422)
+
+### 5-4) Outbox 운영(수동 워커)
+
+- 호출: `POST /internal/outbox/process`
+- 기대: 200/201 + 처리 카운트(`succeeded/failed/dlq`) 반환
+- 주의: 현재 구현은 “실제 MQ 발행” 대신 outbox 상태 전이를 검증하는 용도이며, 실패/DLQ 시나리오는 **테스트용 이벤트 주입(향후)** 또는 DB 시딩이 필요하다.
+
+---
+
+## 6. 앞으로의 디벨롭 계획
 
 ### 단계 1 – 기본 시나리오 완성
 

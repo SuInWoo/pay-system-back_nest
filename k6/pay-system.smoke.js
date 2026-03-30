@@ -30,7 +30,7 @@ function registerOrLogin(email) {
   // 1) register 시도 (이미 있으면 실패 가능)
   const regRes = http.post(
     `${BASE_URL}/auth/register`,
-    JSON.stringify({ email, password: PASSWORD }),
+    JSON.stringify({ name: `k6_${__VU}`, email, password: PASSWORD }),
     { headers: jsonHeaders() },
   );
 
@@ -49,6 +49,7 @@ function registerOrLogin(email) {
   return {
     accessToken: loginRes.json('access_token'),
     refreshToken: loginRes.json('refresh_token'),
+    user: loginRes.json('user'),
     regStatus: regRes.status,
   };
 }
@@ -116,6 +117,7 @@ export default function () {
     { headers: jsonHeaders(accessToken) },
   );
   check(paymentRes, { 'create payment 201/200': (r) => r.status === 201 || r.status === 200 });
+  const paymentId = paymentRes.json('id');
   sleep(0.2);
 
   // 주문 조회 (이벤트 처리 타이밍 고려: 짧게 재시도)
@@ -143,6 +145,56 @@ export default function () {
       { headers: jsonHeaders(accessToken) },
     );
     check(addRes, { 'add order details 201/200': (r) => r.status === 201 || r.status === 200 });
+  }
+
+  // 신규: 주문 상태 이력 조회
+  if ((__ENV.ENABLE_STATUS_HISTORY ?? '1') === '1') {
+    const histRes = http.get(`${BASE_URL}/orders/${orderId}/status-history`, { headers: jsonHeaders(accessToken) });
+    check(histRes, { 'get status history 200': (r) => r.status === 200 });
+  }
+
+  // 신규: 출고 생성 + 출고 확정(배송 시작)
+  // - 출고는 주문 상세(order_detail)가 있어야 SKU 검증이 통과합니다. (master 데이터가 없으면 skip)
+  if ((__ENV.ENABLE_SHIPMENT ?? '1') === '1' && master) {
+    const createShipmentRes = http.post(
+      `${BASE_URL}/orders/${orderId}/shipments`,
+      JSON.stringify({
+        carrier: randomItem(['CJ_LOGISTICS', 'HANJIN', 'LOTTE']),
+        tracking_no: `TRACK-${randomIntBetween(100000, 999999)}-${__VU}-${__ITER}`,
+        items: [{ sku: master.sku, quantity: 1 }],
+      }),
+      { headers: jsonHeaders(accessToken) },
+    );
+    check(createShipmentRes, { 'create shipment 201/200': (r) => r.status === 201 || r.status === 200 });
+    const shipmentId = createShipmentRes.json('id');
+    if (shipmentId) {
+      const dispatchRes = http.post(
+        `${BASE_URL}/orders/${orderId}/shipments/${shipmentId}/dispatch`,
+        null,
+        { headers: jsonHeaders(accessToken) },
+      );
+      check(dispatchRes, { 'dispatch shipment 201/200': (r) => r.status === 201 || r.status === 200 });
+    }
+  }
+
+  // 신규: 환불 생성 (부분환불)
+  if ((__ENV.ENABLE_REFUND ?? '1') === '1' && paymentId) {
+    const refundRes = http.post(
+      `${BASE_URL}/payments/${paymentId}/refunds`,
+      JSON.stringify({
+        amount: 100,
+        idempotency_key: `refund-${uuidv4()}`,
+        reason: 'k6 partial refund',
+      }),
+      { headers: jsonHeaders(accessToken) },
+    );
+    check(refundRes, { 'create refund 201/200': (r) => r.status === 201 || r.status === 200 });
+  }
+
+  // 신규: outbox 운영 API (수동 워커 대체)
+  if ((__ENV.ENABLE_OUTBOX_OPS ?? '1') === '1') {
+    const processRes = http.post(`${BASE_URL}/internal/outbox/process`, null, { headers: jsonHeaders(accessToken) });
+    check(processRes, { 'outbox process 201/200': (r) => r.status === 201 || r.status === 200 });
   }
 
   sleep(0.3);
