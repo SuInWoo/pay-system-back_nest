@@ -186,6 +186,20 @@ CREATE TABLE orders (
 );
 CREATE INDEX ix_orders_orderer_user_id ON orders (orderer_user_id);
 
+-- 7-1) order_status_history (주문 상태 전이 이력)
+CREATE TABLE order_status_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id VARCHAR(64) NOT NULL REFERENCES orders (order_id) ON DELETE CASCADE,
+  from_status VARCHAR(32),
+  to_status VARCHAR(32) NOT NULL,
+  changed_by_type VARCHAR(32) NOT NULL DEFAULT 'SYSTEM',
+  changed_by_id VARCHAR(128),
+  reason VARCHAR(255),
+  changed_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_order_status_history_order_id_changed_at
+  ON order_status_history (order_id, changed_at DESC);
+
 -- 8) order_detail (주문 상세)
 CREATE TABLE order_detail (
   order_id VARCHAR(64) NOT NULL REFERENCES orders (order_id) ON DELETE CASCADE,
@@ -212,5 +226,59 @@ CREATE TABLE payments (
 );
 CREATE UNIQUE INDEX uq_payments_idempotency_key ON payments (idempotency_key);
 CREATE INDEX ix_payments_order_id ON payments (order_id);
+
+-- 9-1) refunds (부분/전체 환불 이력)
+CREATE TABLE refunds (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  payment_id UUID NOT NULL REFERENCES payments (id) ON DELETE CASCADE,
+  amount INT NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+  reason VARCHAR(255),
+  idempotency_key VARCHAR(128) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_refunds_payment_id_created_at ON refunds (payment_id, created_at DESC);
+
+-- 9-2) shipments (출고 헤더)
+CREATE TABLE shipments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_id VARCHAR(64) NOT NULL REFERENCES orders (order_id) ON DELETE CASCADE,
+  status VARCHAR(32) NOT NULL DEFAULT 'READY',
+  carrier VARCHAR(64),
+  tracking_no VARCHAR(128),
+  dispatched_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_shipments_order_id ON shipments (order_id);
+
+-- 9-3) shipment_items (출고 라인)
+CREATE TABLE shipment_items (
+  shipment_id UUID NOT NULL REFERENCES shipments (id) ON DELETE CASCADE,
+  line_seq INT NOT NULL,
+  order_id VARCHAR(64) NOT NULL REFERENCES orders (order_id) ON DELETE CASCADE,
+  sku VARCHAR(64) NOT NULL,
+  quantity INT NOT NULL,
+  PRIMARY KEY (shipment_id, line_seq)
+);
+CREATE INDEX ix_shipment_items_shipment_id ON shipment_items (shipment_id);
+
+-- 10) outbox_events (트랜잭션 내 이벤트 적재)
+CREATE TABLE outbox_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  aggregate_type VARCHAR(64) NOT NULL,
+  aggregate_id VARCHAR(64) NOT NULL,
+  event_type VARCHAR(64) NOT NULL,
+  dedupe_key VARCHAR(128) NOT NULL,
+  payload JSONB NOT NULL,
+  publish_status VARCHAR(16) NOT NULL DEFAULT 'PENDING', -- PENDING|SUCCEEDED|FAILED|DLQ
+  retry_count INT NOT NULL DEFAULT 0,
+  next_retry_at TIMESTAMPTZ,
+  last_error TEXT,
+  published_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX uq_outbox_events_dedupe_key ON outbox_events (dedupe_key);
+CREATE INDEX ix_outbox_events_publish_status_next_retry_at
+  ON outbox_events (publish_status, next_retry_at);
 
 -- 채번 예시: 'ORD-' || to_char(now(), 'YYYYMMDD') || '-' || lpad(nextval('order_seq')::text, 6, '0')

@@ -7,11 +7,17 @@ import { ROLE_CODE } from '../../users/entities/role.entity';
 import { PaymentCreatedEvent } from '../../payment/events/payment-created.event';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { CreateOrderDetailDto, OrderDetailLineDto } from '../dto/create-order-detail.dto';
+import { CreateShipmentDto } from '../dto/create-shipment.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
 import { OrderDetail } from '../entities/order-detail.entity';
 import { DeliveryStatus, Order } from '../entities/order.entity';
+import { ShipmentStatus } from '../entities/shipment.entity';
+import { OrderStatusHistoryRepository } from '../repositories/order-status-history.repository';
+import { OutboxEventRepository } from '../repositories/outbox-event.repository';
 import { OrderDetailRepository } from '../repositories/order-detail.repository';
 import { OrderRepository } from '../repositories/order.repository';
+import { ShipmentItemRepository } from '../repositories/shipment-item.repository';
+import { ShipmentRepository } from '../repositories/shipment.repository';
 
 @Injectable()
 export class OmsService {
@@ -19,7 +25,11 @@ export class OmsService {
     private readonly dataSource: DataSource,
     private readonly orderRepo: OrderRepository,
     private readonly orderDetailRepo: OrderDetailRepository,
+    private readonly orderStatusHistoryRepo: OrderStatusHistoryRepository,
+    private readonly outboxEventRepo: OutboxEventRepository,
     private readonly productRepo: ProductRepository,
+    private readonly shipmentRepo: ShipmentRepository,
+    private readonly shipmentItemRepo: ShipmentItemRepository,
   ) {}
 
   async createOrder(dto: CreateOrderDto) {
@@ -77,6 +87,21 @@ export class OmsService {
       ordererEmail: dto.orderer_email ?? null,
     });
     const saved = await this.orderRepo.save(order);
+    await this.appendOrderHistory({
+      orderId: saved.orderId,
+      fromStatus: null,
+      toStatus: 'CREATED',
+      reason: 'order created',
+    });
+    await this.enqueueOutboxEvent({
+      aggregateId: saved.orderId,
+      eventType: 'OrderCreated',
+      dedupeKey: `order-created:${saved.orderId}`,
+      payload: {
+        orderId: saved.orderId,
+        occurredAt: new Date().toISOString(),
+      },
+    });
 
     if (items.length === 0) return saved;
 
@@ -155,6 +180,7 @@ export class OmsService {
   async updateOrder(orderId: string, dto: UpdateOrderDto) {
     const order = await this.orderRepo.findByOrderId(orderId);
     if (!order) throw new AppException('ORDER_NOT_FOUND');
+    const beforeDeliveryStatus = order.deliveryStatus;
 
     const partial: Partial<Order> = {};
     if (dto.address !== undefined) partial.address = dto.address;
@@ -166,6 +192,25 @@ export class OmsService {
     if (Object.keys(partial).length > 0) {
       await this.orderRepo.update(orderId, partial);
     }
+    if (dto.delivery_status !== undefined && dto.delivery_status !== beforeDeliveryStatus) {
+      await this.appendOrderHistory({
+        orderId,
+        fromStatus: beforeDeliveryStatus,
+        toStatus: dto.delivery_status,
+        reason: 'delivery status updated',
+      });
+      await this.enqueueOutboxEvent({
+        aggregateId: orderId,
+        eventType: 'OrderDeliveryStatusChanged',
+        dedupeKey: `order-delivery:${orderId}:${dto.delivery_status}`,
+        payload: {
+          orderId,
+          fromStatus: beforeDeliveryStatus,
+          toStatus: dto.delivery_status,
+          occurredAt: new Date().toISOString(),
+        },
+      });
+    }
 
     return this.getOrderWithDetails(orderId);
   }
@@ -173,7 +218,26 @@ export class OmsService {
   @OnEvent('payment.created')
   async onPaymentCreated(event: PaymentCreatedEvent) {
     const existing = await this.orderRepo.findByOrderId(event.orderId);
-    if (existing) return existing;
+    if (existing) {
+      await this.appendOrderHistory({
+        orderId: event.orderId,
+        fromStatus: 'PAYMENT_PENDING',
+        toStatus: 'PAYMENT_CONFIRMED',
+        reason: `paymentId=${event.paymentId}`,
+      });
+      await this.enqueueOutboxEvent({
+        aggregateId: event.orderId,
+        eventType: 'PaymentConfirmed',
+        dedupeKey: `payment-confirmed:${event.paymentId}`,
+        payload: {
+          orderId: event.orderId,
+          paymentId: event.paymentId,
+          amount: event.amount,
+          occurredAt: event.occurredAt,
+        },
+      });
+      return existing;
+    }
 
     const order = this.orderRepo.create({
       orderId: event.orderId,
@@ -187,7 +251,25 @@ export class OmsService {
       ordererPhone: null,
       ordererEmail: null,
     });
-    return this.orderRepo.save(order);
+    const saved = await this.orderRepo.save(order);
+    await this.appendOrderHistory({
+      orderId: saved.orderId,
+      fromStatus: null,
+      toStatus: 'CREATED_BY_PAYMENT_EVENT',
+      reason: `paymentId=${event.paymentId}`,
+    });
+    await this.enqueueOutboxEvent({
+      aggregateId: saved.orderId,
+      eventType: 'OrderCreatedByPaymentEvent',
+      dedupeKey: `order-created-payment:${event.paymentId}`,
+      payload: {
+        orderId: saved.orderId,
+        paymentId: event.paymentId,
+        amount: event.amount,
+        occurredAt: event.occurredAt,
+      },
+    });
+    return saved;
   }
 
   async listOrdersForScope(params: {
@@ -353,6 +435,22 @@ export class OmsService {
     };
   }
 
+  async getOrderStatusHistory(orderId: string) {
+    const order = await this.orderRepo.findByOrderId(orderId);
+    if (!order) throw new AppException('ORDER_NOT_FOUND');
+    const rows = await this.orderStatusHistoryRepo.findByOrderId(orderId);
+    return rows.map((row) => ({
+      id: row.id,
+      order_id: row.orderId,
+      from_status: row.fromStatus ?? undefined,
+      to_status: row.toStatus,
+      changed_by_type: row.changedByType,
+      changed_by_id: row.changedById ?? undefined,
+      reason: row.reason ?? undefined,
+      changed_at: row.changedAt,
+    }));
+  }
+
   async addOrderDetails(orderId: string, dto: CreateOrderDetailDto, requesterUserId?: string) {
     let order = await this.orderRepo.findByOrderId(orderId);
     if (!order) {
@@ -370,6 +468,21 @@ export class OmsService {
         ordererEmail: dto.orderer_email ?? null,
       });
       order = await this.orderRepo.save(newOrder);
+      await this.appendOrderHistory({
+        orderId,
+        fromStatus: null,
+        toStatus: 'CREATED',
+        reason: 'auto created by addOrderDetails',
+      });
+      await this.enqueueOutboxEvent({
+        aggregateId: orderId,
+        eventType: 'OrderCreated',
+        dedupeKey: `order-created:${orderId}`,
+        payload: {
+          orderId,
+          occurredAt: new Date().toISOString(),
+        },
+      });
     }
 
     let nextSeq = (await this.orderDetailRepo.getMaxLineSeq(orderId)) + 1;
@@ -420,6 +533,160 @@ export class OmsService {
       unit_price: d.unitPrice,
       line_amount: d.quantity * d.unitPrice,
     }));
+  }
+
+  async createShipment(orderId: string, dto: CreateShipmentDto) {
+    const order = await this.orderRepo.findByOrderId(orderId);
+    if (!order) throw new AppException('ORDER_NOT_FOUND');
+
+    const orderDetails = await this.orderDetailRepo.findByOrderIdOrderByLineSeq(orderId);
+    if (orderDetails.length === 0) throw new AppException('ORDER_NOT_FOUND');
+
+    const bySku = new Map(orderDetails.map((d) => [d.sku, d]));
+    for (const item of dto.items) {
+      const base = bySku.get(item.sku);
+      if (!base) {
+        throw new AppException('OMS_SHIPMENT_INVALID_SKU');
+      }
+      const alreadyShipped = await this.shipmentItemRepo.sumShippedQuantityByOrderAndSku(orderId, item.sku);
+      if (alreadyShipped + item.quantity > base.quantity) {
+        throw new AppException('OMS_SHIPMENT_QUANTITY_EXCEEDED');
+      }
+    }
+
+    const shipment = this.shipmentRepo.create({
+      orderId,
+      status: ShipmentStatus.READY,
+      carrier: dto.carrier,
+      trackingNo: dto.tracking_no,
+      dispatchedAt: null,
+    });
+    const savedShipment = await this.shipmentRepo.save(shipment);
+
+    let seq = 1;
+    for (const item of dto.items) {
+      const row = this.shipmentItemRepo.create({
+        shipmentId: savedShipment.id,
+        lineSeq: seq++,
+        orderId,
+        sku: item.sku,
+        quantity: item.quantity,
+      });
+      await this.shipmentItemRepo.save(row);
+    }
+
+    await this.appendOrderHistory({
+      orderId,
+      fromStatus: 'PAYMENT_CONFIRMED',
+      toStatus: 'READY_TO_SHIP',
+      reason: `shipmentId=${savedShipment.id}`,
+    });
+    await this.enqueueOutboxEvent({
+      aggregateId: orderId,
+      eventType: 'ShipmentCreated',
+      dedupeKey: `shipment-created:${savedShipment.id}`,
+      payload: {
+        orderId,
+        shipmentId: savedShipment.id,
+        carrier: dto.carrier,
+        trackingNo: dto.tracking_no,
+        occurredAt: new Date().toISOString(),
+      },
+    });
+
+    return {
+      id: savedShipment.id,
+      order_id: savedShipment.orderId,
+      status: savedShipment.status,
+      carrier: savedShipment.carrier,
+      tracking_no: savedShipment.trackingNo,
+    };
+  }
+
+  async dispatchShipment(orderId: string, shipmentId: string) {
+    const order = await this.orderRepo.findByOrderId(orderId);
+    if (!order) throw new AppException('ORDER_NOT_FOUND');
+    const shipment = await this.shipmentRepo.findById(shipmentId);
+    if (!shipment || shipment.orderId !== orderId) throw new AppException('OMS_SHIPMENT_NOT_FOUND');
+    if (shipment.status === ShipmentStatus.DISPATCHED) {
+      return {
+        id: shipment.id,
+        order_id: shipment.orderId,
+        status: shipment.status,
+        dispatched_at: shipment.dispatchedAt,
+      };
+    }
+
+    shipment.status = ShipmentStatus.DISPATCHED;
+    shipment.dispatchedAt = new Date();
+    await this.shipmentRepo.save(shipment);
+    await this.orderRepo.update(orderId, { deliveryStatus: DeliveryStatus.SHIPPING });
+
+    await this.appendOrderHistory({
+      orderId,
+      fromStatus: 'READY_TO_SHIP',
+      toStatus: 'SHIPPED',
+      reason: `shipmentId=${shipment.id}`,
+    });
+    await this.enqueueOutboxEvent({
+      aggregateId: orderId,
+      eventType: 'ShipmentDispatched',
+      dedupeKey: `shipment-dispatched:${shipment.id}`,
+      payload: {
+        orderId,
+        shipmentId: shipment.id,
+        trackingNo: shipment.trackingNo,
+        carrier: shipment.carrier,
+        occurredAt: shipment.dispatchedAt.toISOString(),
+      },
+    });
+
+    return {
+      id: shipment.id,
+      order_id: shipment.orderId,
+      status: shipment.status,
+      dispatched_at: shipment.dispatchedAt,
+    };
+  }
+
+  private async appendOrderHistory(params: {
+    orderId: string;
+    fromStatus: string | null;
+    toStatus: string;
+    reason: string;
+    changedByType?: string;
+    changedById?: string | null;
+  }) {
+    const history = this.orderStatusHistoryRepo.create({
+      orderId: params.orderId,
+      fromStatus: params.fromStatus,
+      toStatus: params.toStatus,
+      reason: params.reason,
+      changedByType: params.changedByType ?? 'SYSTEM',
+      changedById: params.changedById ?? null,
+    });
+    await this.orderStatusHistoryRepo.save(history);
+  }
+
+  private async enqueueOutboxEvent(params: {
+    aggregateId: string;
+    eventType: string;
+    dedupeKey: string;
+    payload: Record<string, unknown>;
+  }) {
+    // 비즈니스 이벤트는 재처리 시 중복 생성될 수 있어 dedupe_key 유니크 제약 위반은 무해하게 처리합니다.
+    const event = this.outboxEventRepo.create({
+      aggregateType: 'ORDER',
+      aggregateId: params.aggregateId,
+      eventType: params.eventType,
+      dedupeKey: params.dedupeKey,
+      payload: params.payload,
+    });
+    try {
+      await this.outboxEventRepo.save(event);
+    } catch (e: any) {
+      if (e?.code !== '23505') throw e;
+    }
   }
 
   private async toOrderSummaries(rows: Order[]) {

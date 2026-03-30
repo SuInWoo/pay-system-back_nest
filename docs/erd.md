@@ -96,6 +96,17 @@ erDiagram
     int unit_price
   }
 
+  order_status_history {
+    uuid id PK
+    varchar order_id FK
+    varchar from_status
+    varchar to_status
+    varchar changed_by_type
+    varchar changed_by_id
+    varchar reason
+    timestamptz changed_at
+  }
+
   payments {
     uuid id PK
     int amount
@@ -107,6 +118,47 @@ erDiagram
     varchar method
     varchar provider_status
     timestamptz approved_at
+  }
+
+  refunds {
+    uuid id PK
+    uuid payment_id FK
+    int amount
+    varchar status
+    varchar idempotency_key UK
+    timestamptz created_at
+  }
+
+  shipments {
+    uuid id PK
+    varchar order_id FK
+    varchar status
+    varchar carrier
+    varchar tracking_no
+    timestamptz dispatched_at
+    timestamptz created_at
+  }
+
+  shipment_items {
+    uuid shipment_id PK_FK
+    int line_seq PK
+    varchar order_id FK
+    varchar sku
+    int quantity
+  }
+
+  outbox_events {
+    uuid id PK
+    varchar aggregate_type
+    varchar aggregate_id
+    varchar event_type
+    varchar dedupe_key UK
+    jsonb payload
+    varchar publish_status
+    int retry_count
+    timestamptz next_retry_at
+    timestamptz published_at
+    timestamptz created_at
   }
 
   user_profiles {
@@ -143,6 +195,11 @@ erDiagram
   users ||--|| user_profiles : "1:1"
   users ||--o{ user_addresses : "1:N"
   orders ||--o{ order_detail : "1:N (주문 상세)"
+  orders ||--o{ order_status_history : "1:N (상태 전이 이력)"
+  orders ||--o{ outbox_events : "1:N (ORDER aggregate)"
+  payments ||--o{ refunds : "1:N (부분/전체 환불)"
+  orders ||--o{ shipments : "1:N (부분 출고)"
+  shipments ||--o{ shipment_items : "1:N (출고 라인)"
   payments }o--|| orders : "order_id (논리 참조, 서버 채번)"
 ```
 
@@ -152,6 +209,10 @@ erDiagram
 |------|------|
 | **client_companies → products** | 1:N. products는 `id` PK + `client_company_id` FK. `sku`는 전역 유니크. |
 | **orders → order_detail** | 1:N. 주문 1건당 상세 라인 N개. PK `(order_id, line_seq)`. 상품은 논리 참조(client_company_id, sku)+스냅샷(product_name, unit_price). |
+| **orders → order_status_history** | 1:N. 주문 상태 전이 이력(변경 전/후 상태, 사유, 변경시각)을 기록. |
+| **orders → outbox_events** | 1:N(aggregate 관점). 주문 관련 도메인 이벤트를 트랜잭션 내 적재(Outbox) 후 비동기 발행. |
+| **payments → refunds** | 1:N. 결제 1건에 부분/전체 환불 이력 N건 저장. |
+| **orders → shipments → shipment_items** | 주문 1건을 여러 출고로 분리 가능하며, 출고별 라인(수량) 추적. |
 | **common_code → orders** | 배송상태. orders (delivery_code_type, delivery_status) 복합 FK. |
 | **common_code → payments** | 결제상태. payments (payment_code_type, status) 복합 FK. |
 | **users → orders** | 주문자(회원). orders.orderer_user_id FK, nullable. |
@@ -171,9 +232,11 @@ erDiagram
 6. `order_seq` (시퀀스)
 7. `orders` (→ common_code 복합 FK, users)
 8. `order_detail` (→ orders)
-9. `payments` (→ common_code 복합 FK, order_id는 orders FK 미적용)
-10. `user_profiles` (→ users)
-11. `user_addresses` (→ users)
+9. `order_status_history` (→ orders)
+10. `payments` (→ common_code 복합 FK, order_id는 orders FK 미적용)
+11. `outbox_events`
+12. `user_profiles` (→ users)
+13. `user_addresses` (→ users)
 
 ## PK/식별자 정책
 

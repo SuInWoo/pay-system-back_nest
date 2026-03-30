@@ -18,6 +18,10 @@ export class PaymentRepository {
     return this.repo.findOne({ where: { orderId } });
   }
 
+  findById(id: string): Promise<Payment | null> {
+    return this.repo.findOne({ where: { id } });
+  }
+
   findByIdempotencyKeyAndStatus(
     key: string,
     status: PaymentStatus,

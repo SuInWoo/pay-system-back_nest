@@ -119,10 +119,40 @@ export const ERROR_CODES = {
     message: '이미 승인된 결제입니다.',
     statusCode: HttpStatus.CONFLICT,
   },
+  /** 결제 건 미존재 */
+  PAYMENT_NOT_FOUND: {
+    message: '결제 정보를 찾을 수 없습니다.',
+    statusCode: HttpStatus.NOT_FOUND,
+  },
+  /** 환불 불가 상태 */
+  PAYMENT_NOT_REFUNDABLE: {
+    message: '현재 상태에서는 환불할 수 없습니다.',
+    statusCode: HttpStatus.CONFLICT,
+  },
   /** 외부 PG 연동 실패 */
   PAYMENT_PROVIDER_FAILED: {
     message: '결제사 연동에 실패했습니다.',
     statusCode: HttpStatus.BAD_GATEWAY,
+  },
+  /** 환불 금액 초과 */
+  OMS_REFUND_AMOUNT_EXCEEDED: {
+    message: '환불 가능 금액을 초과했습니다.',
+    statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+  },
+  /** 출고 품목 SKU 불일치 */
+  OMS_SHIPMENT_INVALID_SKU: {
+    message: '주문에 없는 SKU가 포함되어 있습니다.',
+    statusCode: HttpStatus.BAD_REQUEST,
+  },
+  /** 출고 수량 초과 */
+  OMS_SHIPMENT_QUANTITY_EXCEEDED: {
+    message: '출고 가능한 수량을 초과했습니다.',
+    statusCode: HttpStatus.UNPROCESSABLE_ENTITY,
+  },
+  /** 출고 정보 미존재 */
+  OMS_SHIPMENT_NOT_FOUND: {
+    message: '출고 정보를 찾을 수 없습니다.',
+    statusCode: HttpStatus.NOT_FOUND,
   },
 
   // --- 검증 (4xx) ---

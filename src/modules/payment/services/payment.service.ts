@@ -4,12 +4,15 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 import { AppException } from '../../../common/errors/app.exception';
 import { ConfirmPaymentDto } from '../dto/confirm-payment.dto';
+import { CreateRefundDto } from '../dto/create-refund.dto';
 import { PreparePaymentDto } from '../dto/prepare-payment.dto';
 import { OrderRepository } from '../../oms/repositories/order.repository';
 import { Payment, PaymentStatus } from '../entities/payment.entity';
 import { PaymentCreatedEvent } from '../events/payment-created.event';
 import { PaymentRepository } from '../repositories/payment.repository';
-import { PaymentResult } from './payment.types';
+import { Refund, RefundStatus } from '../entities/refund.entity';
+import { RefundRepository } from '../repositories/refund.repository';
+import { PaymentResult, RefundResult } from './payment.types';
 
 @Injectable()
 export class PaymentService {
@@ -19,6 +22,7 @@ export class PaymentService {
     private readonly eventEmitter: EventEmitter2,
     private readonly orderRepo: OrderRepository,
     private readonly paymentRepo: PaymentRepository,
+    private readonly refundRepo: RefundRepository,
   ) {}
 
   async createPayment(params: {
@@ -160,6 +164,41 @@ export class PaymentService {
     return this.toResult(payment);
   }
 
+  async createRefund(paymentId: string, dto: CreateRefundDto): Promise<RefundResult> {
+    const payment = await this.paymentRepo.findById(paymentId);
+    if (!payment) throw new AppException('PAYMENT_NOT_FOUND');
+    if (payment.status !== PaymentStatus.SUCCEEDED) {
+      throw new AppException('PAYMENT_NOT_REFUNDABLE');
+    }
+
+    const idemHit = await this.refundRepo.findByIdempotencyKey(dto.idempotency_key);
+    if (idemHit) return this.toRefundResult(idemHit);
+
+    const refunds = await this.refundRepo.findByPaymentId(paymentId);
+    const refundedAmount = refunds.reduce((sum, row) => sum + row.amount, 0);
+    if (refundedAmount + dto.amount > payment.amount) {
+      throw new AppException('OMS_REFUND_AMOUNT_EXCEEDED');
+    }
+
+    const refund = this.refundRepo.create({
+      paymentId,
+      amount: dto.amount,
+      status: RefundStatus.SUCCEEDED,
+      reason: dto.reason ?? null,
+      idempotencyKey: dto.idempotency_key,
+    });
+    const saved = await this.refundRepo.save(refund);
+
+    this.eventEmitter.emit('payment.refund.created', {
+      paymentId,
+      orderId: payment.orderId,
+      refundId: saved.id,
+      amount: saved.amount,
+      occurredAt: new Date().toISOString(),
+    });
+    return this.toRefundResult(saved);
+  }
+
   handleTossWebhook(payload: Record<string, unknown>) {
     // 웹훅은 추후 서명검증/이벤트 타입 분기 추가 예정
     return { ok: true, received: true, eventType: String(payload.type ?? 'unknown') };
@@ -176,6 +215,18 @@ export class PaymentService {
       provider_status: p.providerStatus ?? undefined,
       method: p.method ?? undefined,
       approved_at: p.approvedAt?.toISOString(),
+    };
+  }
+
+  private toRefundResult(r: Refund): RefundResult {
+    return {
+      id: r.id,
+      payment_id: r.paymentId,
+      amount: r.amount,
+      status: r.status,
+      reason: r.reason ?? undefined,
+      idempotency_key: r.idempotencyKey,
+      created_at: r.createdAt.toISOString(),
     };
   }
 

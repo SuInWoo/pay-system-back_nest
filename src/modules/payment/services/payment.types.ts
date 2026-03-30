@@ -12,3 +12,13 @@ export type PaymentResult = {
   approved_at?: string;
 };
 
+export type RefundResult = {
+  id: string;
+  payment_id: string;
+  amount: number;
+  status: string;
+  reason?: string;
+  idempotency_key: string;
+  created_at: string;
+};
+

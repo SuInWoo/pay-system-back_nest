@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../../auth/jwt/jwt-auth.guard';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { CreateOrderDetailDto } from '../dto/create-order-detail.dto';
 import { CreateOrderResponseDto } from '../dto/create-order-response.dto';
+import { CreateShipmentDto } from '../dto/create-shipment.dto';
 import { ListOrdersQueryDto } from '../dto/list-orders-query.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
 import { OmsService } from '../services/oms.service';
@@ -85,6 +86,15 @@ export class OmsController {
     return this.omsService.getOrderWithDetails(orderId);
   }
 
+  @Get(':orderId/status-history')
+  @ApiOperation({ summary: '주문 상태 이력 조회' })
+  @ApiParam({ name: 'orderId', description: '주문 ID' })
+  @ApiResponse({ status: 200, description: '주문 상태 변경 이력 목록' })
+  @ApiResponse({ status: 404, description: 'ORDER_NOT_FOUND' })
+  getOrderStatusHistory(@Param('orderId') orderId: string) {
+    return this.omsService.getOrderStatusHistory(orderId);
+  }
+
   @Post(':orderId/details')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
@@ -108,5 +118,23 @@ export class OmsController {
   @ApiResponse({ status: 404, description: 'ORDER_NOT_FOUND' })
   updateOrder(@Param('orderId') orderId: string, @Body() dto: UpdateOrderDto) {
     return this.omsService.updateOrder(orderId, dto);
+  }
+
+  @Post(':orderId/shipments')
+  @ApiOperation({ summary: '출고 생성' })
+  @ApiParam({ name: 'orderId', description: '주문 ID' })
+  @ApiResponse({ status: 201, description: '생성된 출고' })
+  @ApiResponse({ status: 404, description: 'ORDER_NOT_FOUND' })
+  createShipment(@Param('orderId') orderId: string, @Body() dto: CreateShipmentDto) {
+    return this.omsService.createShipment(orderId, dto);
+  }
+
+  @Post(':orderId/shipments/:shipmentId/dispatch')
+  @ApiOperation({ summary: '출고 확정(배송 시작)' })
+  @ApiParam({ name: 'orderId', description: '주문 ID' })
+  @ApiParam({ name: 'shipmentId', description: '출고 ID' })
+  @ApiResponse({ status: 201, description: '출고 확정 결과' })
+  dispatchShipment(@Param('orderId') orderId: string, @Param('shipmentId') shipmentId: string) {
+    return this.omsService.dispatchShipment(orderId, shipmentId);
   }
 }

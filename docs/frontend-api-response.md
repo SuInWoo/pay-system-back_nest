@@ -262,6 +262,16 @@
 | DELETE | /admin/menus/:id | 메뉴 삭제 |
 | GET | /admin/roles/:roleId/menus | 역할별 메뉴 ID 목록 |
 | PATCH | /admin/roles/:roleId/menus | 역할별 메뉴 설정 |
+| GET | /orders/:orderId/status-history | 주문 상태 이력 조회 (신규) |
+| POST | /orders/:orderId/shipments | 출고 생성 (신규) |
+| POST | /orders/:orderId/shipments/:shipmentId/dispatch | 출고 확정 (신규) |
+| POST | /payments/:paymentId/refunds | 부분/전체 환불 생성 (신규) |
+| POST | /internal/outbox/process | outbox 발행 처리 (운영 신규) |
+| POST | /internal/outbox/retry-failed | outbox 실패 재큐잉 (운영 신규) |
+| GET | /internal/outbox | outbox 실패 목록 조회 (운영 신규) |
+| POST | /internal/outbox/replay/:eventId | outbox 단건 재발행 (운영 신규) |
+| GET | /internal/mq/dlq | DLQ 목록 조회 (운영 신규) |
+| POST | /internal/mq/dlq/:eventId/requeue | DLQ 단건 재큐잉 (운영 신규) |
 
 ---
 
@@ -289,3 +299,27 @@
 3. NestJS 예: `app.enableCors({ origin: ['http://localhost:3000'] })`
 
 자세한 내용: `docs/backend-requests.md`, `docs/implementation.md`
+
+---
+
+## 11. 신규 기능 반영 요약 (OMS/결제/Outbox)
+
+### 주문(OMS) 신규
+
+- 주문 상태 이력 조회 API 추가
+- 출고 생성/출고 확정 API 추가
+- 주문 상태 이력(`order_status_history`) 및 outbox(`outbox_events`) 적재 로직 연결
+
+### 결제 신규
+
+- 환불 생성 API 추가 (`부분/전체 환불`)
+- 환불 금액 누적 검증(결제 승인 금액 초과 방지)
+
+### 운영 신규
+
+- outbox 처리/재시도/DLQ 조회/재큐잉 API 추가
+- 실패 이벤트를 `FAILED -> DLQ`로 이동시키는 운영 경로 추가
+
+### 프론트 참고 문서
+
+- 신규 API 상세 계약: `docs/frontend-api-newly-added.md`

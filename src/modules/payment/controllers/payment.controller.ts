@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { ConfirmPaymentDto } from '../dto/confirm-payment.dto';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
+import { CreateRefundDto } from '../dto/create-refund.dto';
 import { PreparePaymentDto } from '../dto/prepare-payment.dto';
 import { PaymentService } from '../services/payment.service';
 
@@ -65,6 +66,16 @@ export class PaymentController {
   @ApiResponse({ status: 201, description: '수신 성공' })
   webhook(@Body() payload: Record<string, unknown>) {
     return this.paymentService.handleTossWebhook(payload);
+  }
+
+  @Post(':paymentId/refunds')
+  @ApiOperation({ summary: '환불 생성 (부분/전체)' })
+  @ApiResponse({ status: 201, description: '생성된 환불' })
+  @ApiResponse({ status: 404, description: 'PAYMENT_NOT_FOUND' })
+  @ApiResponse({ status: 409, description: 'PAYMENT_NOT_REFUNDABLE' })
+  @ApiResponse({ status: 422, description: 'OMS_REFUND_AMOUNT_EXCEEDED' })
+  createRefund(@Param('paymentId') paymentId: string, @Body() dto: CreateRefundDto) {
+    return this.paymentService.createRefund(paymentId, dto);
   }
 }
 

@@ -3,44 +3,32 @@ import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource } from 'typeorm';
 import { OrderRepository } from '../../../../src/modules/oms/repositories/order.repository';
-import { PaymentService } from '../../../../src/modules/payment/services/payment.service';
-import { Payment, PaymentStatus } from '../../../../src/modules/payment/entities/payment.entity';
+import { PaymentStatus } from '../../../../src/modules/payment/entities/payment.entity';
 import { PaymentRepository } from '../../../../src/modules/payment/repositories/payment.repository';
 import { RefundRepository } from '../../../../src/modules/payment/repositories/refund.repository';
+import { PaymentService } from '../../../../src/modules/payment/services/payment.service';
 
-describe('PaymentService (unit)', () => {
+describe('PaymentService Refund (unit)', () => {
   let service: PaymentService;
-  let dataSource: { createQueryRunner: jest.Mock };
   let paymentRepo: jest.Mocked<PaymentRepository>;
-  let eventEmitter: { emit: jest.Mock };
+  let refundRepo: jest.Mocked<RefundRepository>;
 
   beforeAll(async () => {
-    dataSource = {
-      createQueryRunner: jest.fn().mockReturnValue({
-        connect: jest.fn(),
-        startTransaction: jest.fn(),
-        commitTransaction: jest.fn(),
-        rollbackTransaction: jest.fn(),
-        release: jest.fn(),
-        manager: {},
-      }),
-    };
-    eventEmitter = { emit: jest.fn() };
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PaymentService,
         { provide: ConfigService, useValue: { get: jest.fn() } },
-        { provide: DataSource, useValue: dataSource },
-        { provide: EventEmitter2, useValue: eventEmitter },
+        { provide: DataSource, useValue: { createQueryRunner: jest.fn() } },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: OrderRepository, useValue: { findByOrderId: jest.fn() } },
         {
           provide: PaymentRepository,
           useValue: {
+            findById: jest.fn(),
             findByIdempotencyKey: jest.fn(),
             findByIdempotencyKeyAndStatus: jest.fn(),
-            findById: jest.fn(),
             findByOrderId: jest.fn(),
+            findAll: jest.fn(),
             create: jest.fn(),
             save: jest.fn(),
           },
@@ -59,25 +47,27 @@ describe('PaymentService (unit)', () => {
 
     service = module.get(PaymentService);
     paymentRepo = module.get(PaymentRepository);
+    refundRepo = module.get(RefundRepository);
   });
 
   beforeEach(() => jest.clearAllMocks());
 
-  it('should return existing succeeded payment when idempotency hit', async () => {
-    (paymentRepo.findByIdempotencyKeyAndStatus as jest.Mock).mockResolvedValueOnce({
-      id: 'p1',
-      orderId: 'o1',
-      amount: 1000,
-      idempotencyKey: 'idem',
+  it('환불 금액이 결제 금액을 넘으면 예외를 던진다', async () => {
+    paymentRepo.findById.mockResolvedValueOnce({
+      id: 'PAY-1',
+      orderId: 'ORD-1',
+      amount: 10000,
       status: PaymentStatus.SUCCEEDED,
-    } as Payment);
+    } as any);
+    refundRepo.findByIdempotencyKey.mockResolvedValueOnce(null);
+    refundRepo.findByPaymentId.mockResolvedValueOnce([{ amount: 9000 }] as any);
 
-    const result = await service.createPayment({ orderId: 'o1', amount: 1000, idempotencyKey: 'idem' });
-
-    expect(result.id).toBe('p1');
-    const qr = dataSource.createQueryRunner.mock.results[0].value;
-    expect(qr.commitTransaction).toHaveBeenCalled();
-    expect(eventEmitter.emit).not.toHaveBeenCalled();
+    await expect(
+      service.createRefund('PAY-1', {
+        amount: 2000,
+        idempotency_key: 'refund-key-1',
+        reason: 'test',
+      }),
+    ).rejects.toMatchObject({ code: 'OMS_REFUND_AMOUNT_EXCEEDED' });
   });
 });
-
